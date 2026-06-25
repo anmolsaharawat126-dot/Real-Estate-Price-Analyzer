@@ -4,10 +4,11 @@ import numpy as np
 import plotly.graph_objects as go
 import folium
 from streamlit_folium import st_folium
-from geopy.geocoders import Nominatim
+from geopy.geocoders import Nominatim, ArcGIS
 import datetime
 import math
 import io
+import re
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -24,7 +25,7 @@ st.markdown("""
 :root{--gold:#f5a623;--gold2:#e8880a;--teal:#00c6a7;--red:#ff4d6d;--blue:#4895ef;
       --bg:#07090f;--bg2:#0e1219;--bg3:#141923;--border:rgba(245,166,35,0.15);
       --text:#e8eaf0;--muted:#7a8499;}
-html,body,[class*="css"]{font-family:'Inter',sans-serif!important;background-color:var(--bg)!important;color:var(--text)!important;}
+html,body{font-family:'Inter',sans-serif!important;background-color:var(--bg)!important;color:var(--text)!important;}
 .stApp{background:radial-gradient(ellipse at top left,#0d1520 0%,#07090f 70%)!important;}
 .hero{background:linear-gradient(135deg,#0d1a2e 0%,#1a2d1a 50%,#0d1a2e 100%);
       border:1px solid var(--border);border-radius:24px;padding:2.5rem 3rem;
@@ -52,16 +53,16 @@ html,body,[class*="css"]{font-family:'Inter',sans-serif!important;background-col
 .kpi-lab{font-size:0.78rem;color:var(--muted);margin-top:0.2rem;}
 .kpi-icon{font-size:1.8rem;margin-bottom:0.4rem;}
 .stButton>button{background:rgba(245,166,35,0.08)!important;color:var(--muted)!important;
-                 border:1px solid rgba(245,166,35,0.2)!important;border-radius:12px!important;
-                 font-weight:500!important;transition:all 0.25s!important;font-size:0.88rem!important;}
+                  border:1px solid rgba(245,166,35,0.2)!important;border-radius:12px!important;
+                  font-weight:500!important;transition:all 0.25s!important;font-size:0.88rem!important;}
 .stButton>button:hover{background:rgba(245,166,35,0.18)!important;color:var(--gold)!important;
                        border-color:var(--gold)!important;transform:translateY(-1px)!important;}
 .stTabs [data-baseweb="tab-list"]{background:var(--bg2)!important;border-radius:12px!important;
-    padding:4px!important;border:1px solid var(--border)!important;gap:4px!important;}
+     padding:4px!important;border:1px solid var(--border)!important;gap:4px!important;}
 .stTabs [data-baseweb="tab"]{color:var(--muted)!important;border-radius:8px!important;
-    font-weight:500!important;font-size:0.88rem!important;}
+     font-weight:500!important;font-size:0.88rem!important;}
 .stTabs [aria-selected="true"]{background:linear-gradient(135deg,var(--gold2),var(--gold))!important;
-    color:#000!important;font-weight:700!important;}
+     color:#000!important;font-weight:700!important;}
 ::-webkit-scrollbar{width:5px;}::-webkit-scrollbar-track{background:var(--bg);}
 ::-webkit-scrollbar-thumb{background:var(--gold2);border-radius:3px;}
 .info-row{display:flex;justify-content:space-between;padding:0.5rem 0;
@@ -210,9 +211,20 @@ CITY_ALIASES = {
 # ── GEOCODING ─────────────────────────────────────────────────
 @st.cache_data(ttl=600, show_spinner=False)
 def geocode_address(address_str):
+    # Try ArcGIS first (fast, accurate, doesn't block cloud IPs)
     try:
-        geo = Nominatim(user_agent="gharmool_final_v4")
-        loc = geo.geocode(address_str + ", India", timeout=12, language="en")
+        geo = ArcGIS(user_agent="gharmool_arcgis_v4")
+        loc = geo.geocode(address_str + ", India", timeout=10)
+        if loc:
+            return {"lat":loc.latitude,"lon":loc.longitude,
+                    "full_address":loc.address,"raw":loc.raw}
+    except Exception:
+        pass
+        
+    # Fallback to Nominatim
+    try:
+        geo = Nominatim(user_agent="gharmool_nominatim_v4")
+        loc = geo.geocode(address_str + ", India", timeout=10, language="en")
         if loc:
             return {"lat":loc.latitude,"lon":loc.longitude,
                     "full_address":loc.address,"raw":loc.raw}
@@ -222,48 +234,130 @@ def geocode_address(address_str):
 
 @st.cache_data(ttl=600, show_spinner=False)
 def reverse_geocode(lat, lon):
+    # Try ArcGIS first
     try:
-        geo = Nominatim(user_agent="gharmool_rev_v4")
-        loc = geo.reverse((lat, lon), timeout=12, language="en")
+        geo = ArcGIS(user_agent="gharmool_arcgis_rev_v4")
+        loc = geo.reverse((lat, lon), timeout=10)
+        if loc:
+            return {"full_address":loc.address,"raw":loc.raw}
+    except Exception:
+        pass
+        
+    # Fallback to Nominatim
+    try:
+        geo = Nominatim(user_agent="gharmool_nominatim_rev_v4")
+        loc = geo.reverse((lat, lon), timeout=10, language="en")
         if loc:
             return {"full_address":loc.address,"raw":loc.raw}
     except Exception:
         pass
     return None
 
-def extract_city(raw_data):
+def geocode_address_with_fallback(address_str):
+    res = geocode_address(address_str)
+    if res:
+        return res
+    parts = [p.strip() for p in address_str.split(",") if p.strip()]
+    while len(parts) > 1:
+        parts.pop(0)
+        fallback_str = ", ".join(parts)
+        res = geocode_address(fallback_str)
+        if res:
+            return res
+    if parts:
+        res = geocode_address(parts[0])
+        if res:
+            return res
+    return None
+
+def extract_address_components(full_address, raw_data):
+    city = ""
+    area = ""
+    state = ""
+    pincode = "N/A"
+    
+    # Try Nominatim structure first
     addr = raw_data.get("address", {}) if raw_data else {}
-    for key in ["city","town","city_district","municipality","county","district"]:
-        val = addr.get(key, "")
-        if val:
-            v = val.lower().strip()
-            return CITY_ALIASES.get(v, v)
-    sd = addr.get("state_district","")
-    if sd:
-        v = sd.lower().strip()
-        if v in CITY_ALIASES: return CITY_ALIASES[v]
-        if v in CITY_BASE_RATES: return v
-    display = raw_data.get("display_name","")
-    for alias in CITY_ALIASES:
-        if alias in display.lower():
-            return CITY_ALIASES[alias]
-    return ""
+    if addr:
+        for key in ["city", "town", "city_district", "municipality", "county", "district"]:
+            val = addr.get(key, "")
+            if val:
+                city = val.lower().strip()
+                break
+        if not city:
+            sd = addr.get("state_district", "")
+            if sd:
+                city = sd.lower().strip()
+        
+        for key in ["neighbourhood", "suburb", "quarter", "village", "hamlet", "road", "residential"]:
+            val = addr.get(key, "")
+            if val:
+                area = val.lower().strip()
+                break
+                
+        state = addr.get("state", "")
+        pincode = addr.get("postcode", "N/A")
+        
+    # Smart parser for full_address string (works for ArcGIS & fallback)
+    if not city or not state:
+        parts = [p.strip() for p in full_address.split(",") if p.strip()]
+        # Remove country
+        if parts and parts[-1].lower() in ["india", "ind"]:
+            parts.pop()
+            
+        # Extract pincode from parts if present
+        for i in range(len(parts)):
+            pc_match = re.search(r"\b\d{6}\b", parts[i])
+            if pc_match:
+                pincode = pc_match.group(0)
+                parts[i] = re.sub(r"\b\d{6}\b", "", parts[i]).strip()
+                
+        # Filter out empty parts
+        parts = [p for p in parts if p]
+        
+        # Search for a known city from right to left
+        city_idx = -1
+        for idx in range(len(parts) - 1, -1, -1):
+            p_clean = parts[idx].lower().strip()
+            # check if it matches a known city or alias
+            if p_clean in CITY_BASE_RATES or p_clean in CITY_ALIASES:
+                city_idx = idx
+                break
+                
+        if city_idx != -1:
+            city = parts[city_idx].lower().strip()
+            # State is the elements to the right of city
+            state = ", ".join(parts[city_idx+1:]) if city_idx < len(parts) - 1 else parts[city_idx]
+            # Area is all elements to the left of city
+            area = ", ".join(parts[:city_idx]).lower().strip()
+        else:
+            # Fallback if no known city matches
+            if len(parts) >= 1:
+                state = parts[-1]
+            if len(parts) >= 2:
+                city = parts[-2].lower().strip()
+            if len(parts) >= 3:
+                area = ", ".join(parts[:-2]).lower().strip()
+            elif len(parts) == 2:
+                area = parts[0].lower().strip()
+                
+    if city:
+        city = CITY_ALIASES.get(city.lower().strip(), city.lower().strip())
+        
+    return city, area, state, pincode
+
+# Backward compatibility functions
+def extract_city(raw_data):
+    return extract_address_components("", raw_data)[0]
 
 def extract_area(raw_data):
-    addr = raw_data.get("address", {}) if raw_data else {}
-    for key in ["neighbourhood","suburb","quarter","village","hamlet","road","residential"]:
-        val = addr.get(key,"")
-        if val: return val.lower().strip()
-    return ""
+    return extract_address_components("", raw_data)[1]
 
 def extract_state(raw_data):
-    addr = raw_data.get("address",{}) if raw_data else {}
-    return addr.get("state","")
+    return extract_address_components("", raw_data)[2]
 
 def extract_pincode(raw_data):
-    addr = raw_data.get("address",{}) if raw_data else {}
-    pc = addr.get("postcode","")
-    return pc if pc else "N/A"
+    return extract_address_components("", raw_data)[3]
 
 def get_per_sqft_rate(city, area):
     city_l = city.lower().strip()
@@ -447,13 +541,13 @@ def generate_forecast(val, city, years=15):
 def forecast_chart(yrs, opt, base, cons, val, city):
     fig=go.Figure()
     fig.add_trace(go.Scatter(x=yrs,y=opt,name="Optimistic",
-        line=dict(color="#06d6a0",width=2.5,dash="dot"),
-        fill="tonexty",fillcolor="rgba(6,214,160,0.06)"))
+         line=dict(color="#06d6a0",width=2.5,dash="dot"),
+         fill="tonexty",fillcolor="rgba(6,214,160,0.06)"))
     fig.add_trace(go.Scatter(x=yrs,y=base,name="Base Case",
-        line=dict(color="#f5a623",width=3),
-        fill="tonexty",fillcolor="rgba(245,166,35,0.08)"))
+         line=dict(color="#f5a623",width=3),
+         fill="tonexty",fillcolor="rgba(245,166,35,0.08)"))
     fig.add_trace(go.Scatter(x=yrs,y=cons,name="Conservative",
-        line=dict(color="#ff4d6d",width=2.5,dash="dash")))
+         line=dict(color="#ff4d6d",width=2.5,dash="dash")))
     fig.add_hline(y=val,line_dash="dot",line_color="#888",
                   annotation_text="Current",annotation_font_color="#888",
                   annotation_position="top left")
@@ -534,20 +628,17 @@ with tab1:
             if st.button("🔍 Find on Map",use_container_width=True,key="find_btn"):
                 if addr_in.strip():
                     with st.spinner("Searching..."):
-                        res=geocode_address(addr_in.strip())
+                        res=geocode_address_with_fallback(addr_in.strip())
                     if res:
                         raw=res.get("raw",{})
                         st.session_state.geo_result   =res
-                        st.session_state.city_name    =extract_city(raw)
-                        st.session_state.area_name    =extract_area(raw)
+                        st.session_state.city_name, st.session_state.area_name, st.session_state.state_name, st.session_state.pincode = extract_address_components(res.get("full_address",""), raw)
                         st.session_state.full_address =res.get("full_address","")
-                        st.session_state.state_name   =extract_state(raw)
-                        st.session_state.pincode      =extract_pincode(raw)
                         st.session_state.per_sqft     =get_per_sqft_rate(
                             st.session_state.city_name,st.session_state.area_name)
                         st.success("✅ Location found!")
                     else:
-                        st.error("❌ Not found. Add city name e.g. 'Civil Lines, Muzaffarnagar'")
+                        st.error("❌ Not found. Try adding city name e.g. 'Civil Lines, Muzaffarnagar'")
                 else:
                     st.warning("Please enter an address.")
         else:
@@ -561,11 +652,8 @@ with tab1:
                     raw=res.get("raw",{})
                     st.session_state.geo_result   ={"lat":lat_in,"lon":lon_in,
                         "full_address":res["full_address"],"raw":raw}
-                    st.session_state.city_name    =extract_city(raw)
-                    st.session_state.area_name    =extract_area(raw)
+                    st.session_state.city_name, st.session_state.area_name, st.session_state.state_name, st.session_state.pincode = extract_address_components(res["full_address"], raw)
                     st.session_state.full_address =res["full_address"]
-                    st.session_state.state_name   =extract_state(raw)
-                    st.session_state.pincode      =extract_pincode(raw)
                     st.session_state.per_sqft     =get_per_sqft_rate(
                         st.session_state.city_name,st.session_state.area_name)
                     st.success("✅ Address found!")
@@ -618,23 +706,87 @@ with tab1:
             </div>""",unsafe_allow_html=True)
 
     with col_map:
+        map_view_type = st.radio(
+            "Map View Source",
+            ["🌍 Folium Map (Interactive Pin Drop)", "🛰️ Google Satellite Embed (Street Detail)", "🛣️ Google Road Map Embed"],
+            horizontal=True,
+            key="map_view_type"
+        )
+        
         if st.session_state.geo_result:
             gr=st.session_state.geo_result
-            m=build_map(gr["lat"],gr["lon"],address=st.session_state.full_address)
-            st.markdown('<div style="border-radius:16px;overflow:hidden;border:1px solid rgba(245,166,35,0.2);">',unsafe_allow_html=True)
-            st_folium(m,width="100%",height=520,returned_objects=[])
-            st.markdown("</div>",unsafe_allow_html=True)
+            lat_g, lon_g = gr.get("lat", 0), gr.get("lon", 0)
+            
+            if "Folium Map" in map_view_type:
+                m=build_map(lat_g, lon_g, address=st.session_state.full_address)
+                st.markdown('<div style="border-radius:16px;overflow:hidden;border:1px solid rgba(245,166,35,0.2);">',unsafe_allow_html=True)
+                map_data = st_folium(m, width="100%", height=520, key="folium_map_active")
+                st.markdown("</div>",unsafe_allow_html=True)
+                
+                # Check for click on map
+                if map_data and map_data.get("last_clicked"):
+                    clicked = map_data["last_clicked"]
+                    lat_c, lon_c = clicked["lat"], clicked["lng"]
+                    last_c = st.session_state.get("last_clicked_coords")
+                    if not last_c or abs(last_c[0] - lat_c) > 0.0001 or abs(last_c[1] - lon_c) > 0.0001:
+                        st.session_state.last_clicked_coords = (lat_c, lon_c)
+                        with st.spinner("📍 Pin moved! Reverse geocoding location..."):
+                            res = reverse_geocode(lat_c, lon_c)
+                        if res:
+                            raw = res.get("raw", {})
+                            st.session_state.geo_result = {"lat": lat_c, "lon": lon_c, "full_address": res["full_address"], "raw": raw}
+                            st.session_state.city_name, st.session_state.area_name, st.session_state.state_name, st.session_state.pincode = extract_address_components(res["full_address"], raw)
+                            st.session_state.per_sqft = get_per_sqft_rate(st.session_state.city_name, st.session_state.area_name)
+                            st.rerun()
+            elif "Google Satellite" in map_view_type:
+                embed_url = f"https://maps.google.com/maps?q={lat_g},{lon_g}&z=19&t=k&output=embed"
+                iframe_code = f"""
+                <iframe width="100%" height="520" frameborder="0" style="border:0; border-radius:16px; background:#07090f;"
+                  src="{embed_url}" allowfullscreen></iframe>
+                """
+                st.markdown('<div style="border-radius:16px;overflow:hidden;border:1px solid rgba(245,166,35,0.2);">',unsafe_allow_html=True)
+                st.components.v1.html(iframe_code, height=520)
+                st.markdown("</div>",unsafe_allow_html=True)
+            else:  # Google Road Map
+                embed_url = f"https://maps.google.com/maps?q={lat_g},{lon_g}&z=17&t=m&output=embed"
+                iframe_code = f"""
+                <iframe width="100%" height="520" frameborder="0" style="border:0; border-radius:16px; background:#07090f;"
+                  src="{embed_url}" allowfullscreen></iframe>
+                """
+                st.markdown('<div style="border-radius:16px;overflow:hidden;border:1px solid rgba(245,166,35,0.2);">',unsafe_allow_html=True)
+                st.components.v1.html(iframe_code, height=520)
+                st.markdown("</div>",unsafe_allow_html=True)
+                
             st.markdown(f"""<div style="background:rgba(14,18,25,0.9);border:1px solid rgba(245,166,35,0.2);
                 border-radius:10px;padding:0.8rem 1rem;margin-top:0.8rem;font-size:0.82rem;color:#7a8499;">
               📍 <strong style="color:#e8eaf0;">{st.session_state.full_address}</strong></div>""",
                 unsafe_allow_html=True)
         else:
-            m0=folium.Map(location=[20.5937,78.9629],zoom_start=5,
-                tiles="https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}",attr="Google Satellite")
-            st.markdown('<div style="border-radius:16px;overflow:hidden;border:1px solid rgba(245,166,35,0.15);">',unsafe_allow_html=True)
-            st_folium(m0,width="100%",height=520,returned_objects=[])
-            st.markdown("</div>",unsafe_allow_html=True)
-            st.info("👆 Upar address likho aur Find on Map dabao.")
+            if "Folium Map" in map_view_type:
+                m0=folium.Map(location=[20.5937,78.9629],zoom_start=5,
+                    tiles="https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}",attr="Google Satellite")
+                st.markdown('<div style="border-radius:16px;overflow:hidden;border:1px solid rgba(245,166,35,0.15);">',unsafe_allow_html=True)
+                map_data = st_folium(m0, width="100%", height=520, key="folium_map_empty")
+                st.markdown("</div>",unsafe_allow_html=True)
+                st.info("👆 Upar address likho aur Find on Map dabao, ya map par kahin bhi click karke direct pin drop karo!")
+                
+                # Check for click on map
+                if map_data and map_data.get("last_clicked"):
+                    clicked = map_data["last_clicked"]
+                    lat_c, lon_c = clicked["lat"], clicked["lng"]
+                    last_c = st.session_state.get("last_clicked_coords")
+                    if not last_c or abs(last_c[0] - lat_c) > 0.0001 or abs(last_c[1] - lon_c) > 0.0001:
+                        st.session_state.last_clicked_coords = (lat_c, lon_c)
+                        with st.spinner("📍 Reverse geocoding clicked location..."):
+                            res = reverse_geocode(lat_c, lon_c)
+                        if res:
+                            raw = res.get("raw", {})
+                            st.session_state.geo_result = {"lat": lat_c, "lon": lon_c, "full_address": res["full_address"], "raw": raw}
+                            st.session_state.city_name, st.session_state.area_name, st.session_state.state_name, st.session_state.pincode = extract_address_components(res["full_address"], raw)
+                            st.session_state.per_sqft = get_per_sqft_rate(st.session_state.city_name, st.session_state.area_name)
+                            st.rerun()
+            else:
+                st.warning("⚠️ Pehle address search karke pin generate karein, ya Folium Map select karke pin drop karein.")
 
 # ════════════════════════════════════════════════════
 # TAB 2
@@ -676,7 +828,7 @@ with tab2:
                 st.markdown("**🏢 Amenities**")
                 c1,c2,c3=st.columns(3)
                 parking =c1.checkbox("Parking",value=True)
-                lift    =c2.checkbox("Lift")
+                node_lift = c2.checkbox("Lift")
                 gym     =c3.checkbox("Gym")
                 c1,c2=st.columns(2)
                 pool    =c1.checkbox("Pool")
@@ -693,7 +845,7 @@ with tab2:
                 use_rate=rate_override if rate_override>0 else st.session_state.per_sqft
                 val,breakdown=calculate_valuation(
                     sqft,bedrooms,bathrooms,toilets,balconies,terrace,storeroom,
-                    pooja_room,servant_qr,parking,lift,gym,pool,garden,security,
+                    pooja_room,servant_qr,parking,node_lift,gym,pool,garden,security,
                     furnishing,prop_type,age,floor,use_rate)
                 st.session_state.valuation=val
                 for k2,v2 in [("prop_sqft",sqft),("prop_beds",bedrooms),
@@ -821,9 +973,7 @@ with tab3:
               <div style="font-size:0.85rem;margin-top:0.5rem;">Engineer-quality floor plan yahan ayega</div>
             </div>""",unsafe_allow_html=True)
 
-# ════════════════════════════════════════════════════
-# TAB 4
-# ════════════════════════════════════════════════════
+# ── TAB 4 ───────────────────────────────────────────
 with tab4:
     st.markdown("### 📈 Property Price Forecast")
     city_fc=st.session_state.city_name or "muzaffarnagar"
@@ -864,9 +1014,7 @@ with tab4:
                              "Gain(Base)":f"+{int((base[i]/fc_val-1)*100)}%"})
         st.dataframe(pd.DataFrame(rows),use_container_width=True,hide_index=True)
 
-# ════════════════════════════════════════════════════
-# TAB 5
-# ════════════════════════════════════════════════════
+# ── TAB 5 ───────────────────────────────────────────
 with tab5:
     st.markdown("### 📊 Market Intelligence & Development Index")
     city_mi=st.session_state.city_name or "muzaffarnagar"
