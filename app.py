@@ -277,8 +277,8 @@ def extract_address_components(full_address, raw_data):
     pincode = "N/A"
     
     # Try Nominatim structure first
-    addr = raw_data.get("address", {}) if raw_data else {}
-    if addr:
+    addr = raw_data.get("address", {}) if isinstance(raw_data, dict) else {}
+    if isinstance(addr, dict) and addr:
         for key in ["city", "town", "city_district", "municipality", "county", "district"]:
             val = addr.get(key, "")
             if val:
@@ -348,16 +348,40 @@ def extract_address_components(full_address, raw_data):
 
 # Backward compatibility functions
 def extract_city(raw_data):
-    return extract_address_components("", raw_data)[0]
+    if isinstance(raw_data, dict) and "display_name" in raw_data:
+        full_address = raw_data.get("display_name", "")
+    elif isinstance(raw_data, dict) and "address" in raw_data and isinstance(raw_data["address"], str):
+        full_address = raw_data.get("address", "")
+    else:
+        full_address = ""
+    return extract_address_components(full_address, raw_data)[0]
 
 def extract_area(raw_data):
-    return extract_address_components("", raw_data)[1]
+    if isinstance(raw_data, dict) and "display_name" in raw_data:
+        full_address = raw_data.get("display_name", "")
+    elif isinstance(raw_data, dict) and "address" in raw_data and isinstance(raw_data["address"], str):
+        full_address = raw_data.get("address", "")
+    else:
+        full_address = ""
+    return extract_address_components(full_address, raw_data)[1]
 
 def extract_state(raw_data):
-    return extract_address_components("", raw_data)[2]
+    if isinstance(raw_data, dict) and "display_name" in raw_data:
+        full_address = raw_data.get("display_name", "")
+    elif isinstance(raw_data, dict) and "address" in raw_data and isinstance(raw_data["address"], str):
+        full_address = raw_data.get("address", "")
+    else:
+        full_address = ""
+    return extract_address_components(full_address, raw_data)[2]
 
 def extract_pincode(raw_data):
-    return extract_address_components("", raw_data)[3]
+    if isinstance(raw_data, dict) and "display_name" in raw_data:
+        full_address = raw_data.get("display_name", "")
+    elif isinstance(raw_data, dict) and "address" in raw_data and isinstance(raw_data["address"], str):
+        full_address = raw_data.get("address", "")
+    else:
+        full_address = ""
+    return extract_address_components(full_address, raw_data)[3]
 
 def get_per_sqft_rate(city, area):
     city_l = city.lower().strip()
