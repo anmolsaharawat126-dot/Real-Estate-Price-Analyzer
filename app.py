@@ -1,1213 +1,411 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import plotly.graph_objects as go
-import plotly.express as px
-import datetime
-import json
-import random
-from pathlib import Path
-from sklearn.linear_model import LinearRegression
-from sklearn.model_selection import train_test_split
-from sklearn.metrics import r2_score, mean_absolute_error
-
-# ─────────────────────────────────────────────────────────────────────────────
-# PAGE CONFIG
-# ─────────────────────────────────────────────────────────────────────────────
-st.set_page_config(page_title="EstateX - Ultra-Luxury Property Analytics", page_icon="⚜️", layout="wide")
-
-# ─────────────────────────────────────────────────────────────────────────────
-# DESIGN SYSTEM & STYLING (Glassmorphic Noir & Champagne Gold)
-# ─────────────────────────────────────────────────────────────────────────────
-st.markdown("""
-<style>
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Montserrat:wght@400;600;700;800;900&display=swap');
-
-/* Main App Background Gradient */
-.stApp {
-    background: radial-gradient(ellipse at top, #181c2e 0%, #050609 85%) !important;
-    font-family: 'Inter', sans-serif !important;
-    color: #f0f5ff !important;
-}
-
-/* Titles and Headers */
-h1, h2, h3, h4, h5, h6, .hero-title {
-    font-family: 'Montserrat', sans-serif !important;
-    font-weight: 700 !important;
-}
-
-/* Glassmorphic Container Cards */
-.glass-card {
-    background: rgba(17, 20, 28, 0.7);
-    border: 1px solid rgba(212, 175, 55, 0.18);
-    border-radius: 18px;
-    padding: 1.8rem;
-    backdrop-filter: blur(20px);
-    box-shadow: 0 15px 40px rgba(0, 0, 0, 0.6);
-    margin-bottom: 1.5rem;
-    transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
-}
-.glass-card:hover {
-    border-color: rgba(212, 175, 55, 0.35);
-    box-shadow: 0 20px 45px rgba(212, 175, 55, 0.06);
-    transform: translateY(-2px);
-}
-
-/* Sub-card Sections */
-.sub-section {
-    background: rgba(255, 255, 255, 0.02);
-    border-left: 3px solid #d4af37;
-    border-radius: 4px 10px 10px 4px;
-    padding: 1rem;
-    margin: 0.8rem 0;
-}
-
-/* Luxury Hero Banner Overlay */
-.hero-banner {
-    background: linear-gradient(135deg, rgba(14, 17, 26, 0.9) 0%, rgba(26, 32, 50, 0.85) 100%);
-    border: 1px solid rgba(212, 175, 55, 0.25);
-    border-radius: 20px;
-    padding: 2.2rem;
-    margin-bottom: 2rem;
-    position: relative;
-    overflow: hidden;
-}
-.hero-title {
-    font-size: 2.8rem !important;
-    background: linear-gradient(90deg, #ffffff 30%, #d4af37 100%);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    margin-bottom: 0.2rem !important;
-}
-.hero-badge {
-    display: inline-flex;
-    align-items: center;
-    background: rgba(212, 175, 55, 0.12);
-    border: 1px solid rgba(212, 175, 55, 0.4);
-    border-radius: 50px;
-    padding: 5px 16px;
-    font-size: 0.78rem;
-    color: #d4af37;
-    text-transform: uppercase;
-    font-weight: 700;
-    letter-spacing: 1px;
-    margin-bottom: 0.9rem;
-}
-
-/* Metrics and Values styling */
-.glow-val {
-    font-size: 2.5rem;
-    font-weight: 800;
-    color: #d4af37;
-    text-shadow: 0 0 15px rgba(212, 175, 55, 0.4);
-    font-family: 'Montserrat', sans-serif;
-}
-.glow-val-cyan {
-    font-size: 2.2rem;
-    font-weight: 800;
-    color: #00f5d4;
-    text-shadow: 0 0 15px rgba(0, 245, 212, 0.4);
-    font-family: 'Montserrat', sans-serif;
-}
-
-/* Custom Tab Buttons Styling */
-.stButton > button {
-    background-color: rgba(20, 24, 38, 0.6) !important;
-    color: #cbd5e1 !important;
-    border: 1px solid rgba(212, 175, 55, 0.2) !important;
-    border-radius: 30px !important;
-    padding: 0.5rem 1.2rem !important;
-    font-weight: 600 !important;
-    transition: all 0.25s ease !important;
-}
-.stButton > button:hover {
-    background: rgba(212, 175, 55, 0.15) !important;
-    border-color: #d4af37 !important;
-    color: #ffffff !important;
-    transform: translateY(-1px);
-}
-.stButton > button:active {
-    transform: scale(0.98);
-}
-
-/* Chat bubble styling for negotiator */
-.chat-bubble-owner {
-    background: rgba(212, 175, 55, 0.08);
-    border: 1px solid rgba(212, 175, 55, 0.3);
-    border-radius: 12px;
-    padding: 10px 15px;
-    margin-bottom: 10px;
-    font-style: italic;
-    color: #f0f5ff;
-}
-.chat-label {
-    font-size: 0.75rem;
-    color: #d4af37;
-    font-weight: bold;
-    text-transform: uppercase;
-    margin-bottom: 2px;
-}
-</style>
-""", unsafe_allow_html=True)
-
-# ─────────────────────────────────────────────────────────────────────────────
-# ML MODEL & LOCATION CONFIG (with Stamp Duty & GST details)
-# ─────────────────────────────────────────────────────────────────────────────
-LOCATIONS = {
-    "South Mumbai (Malabar Hill / Cuffe Parade)": {
-        "mult": 3.5, "city": "Mumbai", "base_sqft": 45000, "stamp_duty": 6.0, "reg_fee": 30000, "gst": 5.0
-    },
-    "Gurugram Golf Course Road (DLF Phase 5)": {
-        "mult": 2.4, "city": "Gurugram", "base_sqft": 28000, "stamp_duty": 7.0, "reg_fee": 50000, "gst": 5.0
-    },
-    "South Delhi (Jor Bagh / Vasant Vihar)": {
-        "mult": 2.9, "city": "Delhi", "base_sqft": 36000, "stamp_duty": 6.0, "reg_fee": 1.0, "gst": 5.0 # reg_fee 1%
-    },
-    "Bangalore Central (Indiranagar / Koramangala)": {
-        "mult": 1.9, "city": "Bangalore", "base_sqft": 18000, "stamp_duty": 5.0, "reg_fee": 1.0, "gst": 5.0
-    },
-    "Pune Core (Koregaon Park / Kalyani Nagar)": {
-        "mult": 1.6, "city": "Pune", "base_sqft": 14000, "stamp_duty": 6.0, "reg_fee": 30000, "gst": 5.0
-    },
-    "Hyderabad Premium (Jubilee Hills)": {
-        "mult": 2.1, "city": "Hyderabad", "base_sqft": 22000, "stamp_duty": 5.5, "reg_fee": 0.5, "gst": 5.0
-    },
-    "Standard Suburban District": {
-        "mult": 1.0, "city": "Metropolitan", "base_sqft": 8000, "stamp_duty": 5.0, "reg_fee": 1.0, "gst": 5.0
-    }
-}
-
-PROP_TYPES = {
-    "Ultra-Luxury Glass Penthouse": {"mult": 1.45, "icon": "🏙️"},
-    "Modern Architectural Glass Villa": {"mult": 1.60, "icon": "🏡"},
-    "Contemporary Sky Mansion": {"mult": 1.35, "icon": "🏰"},
-    "Bespoke Waterfront Estate": {"mult": 1.75, "icon": "🌊"},
-    "Premium Residential Flat": {"mult": 1.00, "icon": "🏢"}
-}
-
-@st.cache_resource
-def train_linear_model():
-    base_data = {
-        "area": [1000, 1200, 1500, 1800, 2000, 2200, 2500],
-        "bedrooms": [2, 3, 3, 4, 4, 4, 5],
-        "bathrooms": [1, 2, 2, 3, 3, 4, 4],
-        "price": [5000000, 6500000, 7200000, 9000000, 10000000, 11500000, 13500000]
-    }
-    df_base = pd.DataFrame(base_data)
-    
-    np.random.seed(101)
-    n_samples = 400
-    area = np.random.uniform(500, 4500, n_samples)
-    bedrooms = np.round(area / 700 + np.random.uniform(0.4, 1.6, n_samples))
-    bedrooms = np.clip(bedrooms, 1, 6).astype(int)
-    bathrooms = np.round(bedrooms * 0.8 + np.random.uniform(-0.4, 0.6, n_samples))
-    bathrooms = np.clip(bathrooms, 1, 5).astype(int)
-    
-    noise = np.random.normal(0, 150000, n_samples)
-    price = (area * 3500) + (bedrooms * 800000) + (bathrooms * 400000) + noise
-    price = np.clip(price, 1200000, 25000000)
-    
-    df_large = pd.DataFrame({
-        "area": area,
-        "bedrooms": bedrooms,
-        "bathrooms": bathrooms,
-        "price": price
-    })
-    
-    df_all = pd.concat([df_base, df_large], ignore_index=True)
-    
-    X = df_all[["area", "bedrooms", "bathrooms"]]
-    y = df_all["price"]
-    
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.15, random_state=42)
-    
-    model = LinearRegression()
-    model.fit(X_train, y_train)
-    
-    r2 = r2_score(y_test, model.predict(X_test))
-    mae = mean_absolute_error(y_test, model.predict(X_test))
-    
-    return model, df_all, r2, mae
-
-model, df_market, model_r2, model_mae = train_linear_model()
-
-# ─────────────────────────────────────────────────────────────────────────────
-# HIGH-FIDELITY VECTOR BLUEPRINT GENERATOR WITH STYLE THEMES
-# ─────────────────────────────────────────────────────────────────────────────
-def draw_detailed_blueprint(beds, baths, area, style="Champagne Classic"):
-    width = 460
-    height = 320
-    
-    themes = {
-        "Champagne Classic": {"bg": "#070b13", "stroke_main": "#d4af37", "stroke_sub": "rgba(0, 245, 212, 0.3)", "grid": "rgba(0, 245, 212, 0.05)"},
-        "Cyberpunk Blue": {"bg": "#020813", "stroke_main": "#00f5d4", "stroke_sub": "rgba(0, 180, 216, 0.4)", "grid": "rgba(0, 245, 212, 0.08)"},
-        "Blueprint Minimal": {"bg": "#1e293b", "stroke_main": "#ffffff", "stroke_sub": "rgba(255, 255, 255, 0.25)", "grid": "rgba(255, 255, 255, 0.04)"},
-        "Emerald Eco": {"bg": "#030f0a", "stroke_main": "#10b981", "stroke_sub": "rgba(245, 158, 11, 0.3)", "grid": "rgba(16, 185, 129, 0.05)"}
-    }
-    tc = themes.get(style, themes["Champagne Classic"])
-    
-    svg = f"""<svg width="100%" height="100%" viewBox="0 0 {width} {height}" xmlns="http://www.w3.org/2000/svg" style="background:{tc['bg']}; border-radius:12px; border: 1px dashed {tc['stroke_main']};">
-    <defs>
-        <!-- Engineering Blueprint Grid Pattern -->
-        <pattern id="blueprint-grid" width="20" height="20" patternUnits="userSpaceOnUse">
-            <path d="M 20 0 L 0 0 0 20" fill="none" stroke="{tc['grid']}" stroke-width="1"/>
-        </pattern>
-    </defs>
-    <!-- Background Grid -->
-    <rect width="100%" height="100%" fill="url(#blueprint-grid)" />
-    
-    <!-- Outer Walls (Thick double strokes) -->
-    <rect x="20" y="20" width="{width-40}" height="{height-40}" fill="none" stroke="{tc['stroke_sub']}" stroke-width="4" />
-    <rect x="23" y="23" width="{width-46}" height="{height-46}" fill="none" stroke="{tc['stroke_main']}" stroke-width="1.5" />
-    
-    <!-- Title / Metrics -->
-    <text x="35" y="45" fill="{tc['stroke_main']}" font-family="monospace" font-size="11" font-weight="bold">ESTATEX ARCHITECTURE LAB</text>
-    <text x="35" y="58" fill="rgba(255,255,255,0.4)" font-family="monospace" font-size="8">AREA: {area} SQ FT | OPTION STYLE: {style.upper()}</text>
-    """
-    
-    left_x = 20
-    left_w = 190
-    usable_h = height - 40
-    bed_h = usable_h / max(1, beds)
-    
-    for i in range(beds):
-        y_pos = 20 + (i * bed_h)
-        svg += f'<rect x="{left_x}" y="{y_pos}" width="{left_w}" height="{bed_h}" fill="none" stroke="{tc["stroke_sub"]}" stroke-width="2" />'
-        svg += f'<text x="{left_x + 15}" y="{y_pos + 20}" fill="{tc["stroke_main"]}" font-family="monospace" font-size="9" font-weight="bold">BEDROOM 0{i+1}</text>'
-        
-        room_sqft = int(area * (0.35 / max(1, beds)))
-        svg += f'<text x="{left_x + 15}" y="{y_pos + 32}" fill="rgba(255, 255, 255, 0.4)" font-family="monospace" font-size="8">~{room_sqft} SQFT</text>'
-        
-        bed_x = left_x + left_w - 70
-        bed_y = y_pos + (bed_h / 2) - 20
-        svg += f"""
-        <!-- Bed Base -->
-        <rect x="{bed_x}" y="{bed_y}" width="50" height="40" rx="3" fill="rgba(255, 255, 255, 0.01)" stroke="{tc['stroke_main']}" stroke-dasharray="2 1" stroke-width="1" />
-        <!-- Pillows -->
-        <rect x="{bed_x + 5}" y="{bed_y + 4}" width="14" height="10" rx="1" fill="none" stroke="{tc['stroke_main']}" stroke-width="1" />
-        <rect x="{bed_x + 5}" y="{bed_y + 26}" width="14" height="10" rx="1" fill="none" stroke="{tc['stroke_main']}" stroke-width="1" />
-        <line x1="{bed_x + 25}" y1="{bed_y}" x2="{bed_x + 25}" y2="{bed_y + 40}" stroke="{tc['stroke_main']}" stroke-width="1" />
-        """
-        
-    living_x = 210
-    living_y = 20
-    living_w = width - 230
-    living_h = 160
-    svg += f"""
-    <rect x="{living_x}" y="{living_y}" width="{living_w}" height="{living_h}" fill="rgba(255, 255, 255, 0.01)" stroke="{tc['stroke_sub']}" stroke-width="2" />
-    <text x="{living_x + 15}" y="{living_y + 25}" fill="{tc['stroke_main']}" font-family="monospace" font-size="10" font-weight="bold">LIVING & LOUNGE</text>
-    <rect x="{living_x + 40}" y="{living_y + 60}" width="50" height="30" rx="2" fill="none" stroke="{tc['stroke_sub']}" stroke-width="1.2" />
-    <circle cx="{living_x + 30}" cy="{living_y + 75}" r="4" fill="none" stroke="{tc['stroke_sub']}" stroke-width="1" />
-    <circle cx="{living_x + 100}" cy="{living_y + 75}" r="4" fill="none" stroke="{tc['stroke_sub']}" stroke-width="1" />
-    <path d="M {living_x + 120} {living_y + 60} L {living_x + 120} {living_y + 120} L {living_x + 150} {living_y + 120}" fill="none" stroke="{tc['stroke_main']}" stroke-width="1.5" />
-    """
-    
-    kitchen_x = 210
-    kitchen_y = 180
-    kitchen_w = 120
-    kitchen_h = height - 200
-    svg += f"""
-    <rect x="{kitchen_x}" y="{kitchen_y}" width="{kitchen_w}" height="{kitchen_h}" fill="none" stroke="{tc['stroke_sub']}" stroke-width="2" />
-    <text x="{kitchen_x + 12}" y="{kitchen_y + 20}" fill="{tc['stroke_main']}" font-family="monospace" font-size="9" font-weight="bold">KITCHEN</text>
-    <rect x="{kitchen_x + 2}" y="{kitchen_y + kitchen_h - 22}" width="{kitchen_w - 4}" height="20" fill="rgba(255,255,255,0.03)" stroke="{tc['stroke_sub']}" stroke-width="1" />
-    """
-    
-    bath_container_x = 330
-    bath_container_y = 180
-    bath_container_w = width - 350
-    bath_container_h = height - 200
-    svg += f'<rect x="{bath_container_x}" y="{bath_container_y}" width="{bath_container_w}" height="{bath_container_h}" fill="none" stroke="{tc["stroke_sub"]}" stroke-width="2" />'
-    
-    single_bath_h = bath_container_h / max(1, baths)
-    for j in range(baths):
-        by_pos = bath_container_y + (j * single_bath_h)
-        svg += f"""
-        <rect x="{bath_container_x}" y="{by_pos}" width="{bath_container_w}" height="{single_bath_h}" fill="none" stroke="{tc['stroke_sub']}" stroke-width="1" />
-        <text x="{bath_container_x + 8}" y="{by_pos + 12}" fill="{tc['stroke_main']}" font-family="monospace" font-size="7" font-weight="bold">BATH 0{j+1}</text>
-        <rect x="{bath_container_x + bath_container_w - 42}" y="{by_pos + (single_bath_h/2) - 6}" width="32" height="12" rx="6" fill="none" stroke="{tc['stroke_main']}" stroke-width="1" />
-        """
-        
-    compass_cx = width - 45
-    compass_cy = 45
-    svg += f"""
-    <circle cx="{compass_cx}" cy="{compass_cy}" r="12" fill="none" stroke="{tc['stroke_main']}" stroke-width="1" stroke-dasharray="3 2" />
-    <polygon points="{compass_cx},{compass_cy-11} {compass_cx+3},{compass_cy} {compass_cx},{compass_cy+11} {compass_cx-3},{compass_cy}" fill="none" stroke="{tc['stroke_main']}" stroke-width="1" />
-    <text x="{compass_cx}" y="{compass_cy-14}" fill="{tc['stroke_main']}" font-family="sans-serif" font-size="7" font-weight="bold" text-anchor="middle">N</text>
-    """
-    
-    svg += "</svg>"
-    return svg
-
-# ─────────────────────────────────────────────────────────────────────────────
-# HISTORICAL & SESSION VALUATION RECORDS
-# ─────────────────────────────────────────────────────────────────────────────
-DATA_FILE = Path("estate_records.json")
-
-def load_records():
-    if DATA_FILE.exists():
-        try:
-            with open(DATA_FILE, "r") as f:
-                return json.load(f)
-        except Exception:
-            return []
-    return []
-
-def save_records(records):
-    try:
-        with open(DATA_FILE, "w") as f:
-            json.dump(records, f, indent=2)
-    except Exception:
-        pass
-
-if "valuation_history" not in st.session_state:
-    st.session_state.valuation_history = load_records()
-    if not st.session_state.valuation_history:
-        sectors = list(LOCATIONS.keys())
-        p_types = list(PROP_TYPES.keys())
-        for _ in range(8):
-            area_rand = int(random.uniform(1200, 3800))
-            bhk_rand = int(random.choice([3, 4, 5]))
-            bath_rand = int(max(2, bhk_rand - random.choice([0, 1])))
-            loc_rand = random.choice(sectors)
-            type_rand = random.choice(p_types)
-            
-            pred = model.predict([[area_rand, bhk_rand, bath_rand]])[0]
-            pred *= LOCATIONS[loc_rand]["mult"]
-            pred *= PROP_TYPES[type_rand]["mult"]
-            
-            st.session_state.valuation_history.append({
-                "timestamp": (datetime.datetime.now() - datetime.timedelta(days=random.randint(1, 10), hours=random.randint(1, 24))).strftime("%Y-%m-%d %H:%M"),
-                "location": loc_rand,
-                "property_type": type_rand,
-                "area": area_rand,
-                "bedrooms": bhk_rand,
-                "bathrooms": bath_rand,
-                "valuation": int(pred)
-            })
-        save_records(st.session_state.valuation_history)
-
-# ─────────────────────────────────────────────────────────────────────────────
-# MAIN NAVIGATION SELECTOR
-# ─────────────────────────────────────────────────────────────────────────────
-if "current_view" not in st.session_state:
-    st.session_state.current_view = "🏠 AI Valuation Engine"
-
-col_banner_left, col_banner_right = st.columns([2.5, 1.5])
-with col_banner_left:
-    st.markdown(f"""
-    <div class="hero-banner">
-        <div class="hero-badge">⚜️ EstateX Ultra-Luxury Edition</div>
-        <div class="hero-title">EstateX Analytics Suite</div>
-        <div style="font-size:1rem; color:#cbd5e1; margin-top:0.4rem;">
-            Predict elite property valuations, model investment portfolios, negotiate deals with AI owners, and simulate 3D pricing hyperplanes.
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
-with col_banner_right:
-    if Path("luxury_villa_render.png").exists():
-        st.image("luxury_villa_render.png", use_container_width=True, caption="Live Gen-AI Architectural Concept")
-    else:
-        st.markdown("""
-        <div style="background:rgba(212,175,55,0.05); height:160px; border-radius:20px; border:1px dashed #d4af37; display:flex; align-items:center; justify-content:center;">
-            <span style="color:#d4af37; font-weight:600;">Luxury Concept Render</span>
-        </div>
-        """, unsafe_allow_html=True)
-
-st.markdown("<br>", unsafe_allow_html=True)
-nav_buttons = [
-    "🏠 AI Valuation Engine",
     "📐 3D Market Space",
     "⚖️ Option Comparator",
     "💰 Loan & ROI Matrix",
     "📜 Valuation Archives"
+    "📜 Valuation Archives",
+    "🏛️ Tax & Costs",
+    "🤝 Deal Negotiator",
+    "🔥 Investment Heatmap",
+    "🏆 Certificate"
 ]
 cols = st.columns(5)
+cols = st.columns(len(nav_buttons))
 for index, tab_name in enumerate(nav_buttons):
     is_active = (st.session_state.current_view == tab_name)
     btn_text = f"⚜️ {tab_name}" if is_active else tab_name
-    if cols[index].button(btn_text, key=f"nav_tab_{index}", use_container_width=True):
-        st.session_state.current_view = tab_name
-        st.rerun()
-
-st.markdown("<hr style='border-top: 1px solid rgba(212, 175, 55, 0.2); margin-top: 0rem; margin-bottom: 2rem;'>", unsafe_allow_html=True)
-
-def generate_html_certificate(loc, ptype, area, beds, baths, price):
-    today = datetime.date.today().strftime("%B %d, %Y")
-    cert_id = f"EX-{random.randint(100000, 999999)}"
-    html = f"""
-    <html>
-    <head>
-        <style>
-            body {{ background-color: #07080a; color: #e2e8f0; font-family: 'Cinzel', 'Times New Roman', serif; padding: 40px; text-align: center; }}
-            .border-outer {{ border: 5px solid #d4af37; padding: 20px; background: #0c0e14; border-radius: 12px; }}
-            .border-inner {{ border: 1px solid rgba(212,175,55,0.5); padding: 40px; }}
-            .header-title {{ font-size: 32px; color: #d4af37; letter-spacing: 2px; font-weight: bold; margin-bottom: 10px; }}
-            .subtitle {{ font-size: 14px; text-transform: uppercase; color: #a0aec0; letter-spacing: 4px; margin-bottom: 40px; }}
-            .cert-id {{ font-size: 12px; color: #a0aec0; float: right; }}
-            .cert-body {{ font-size: 18px; line-height: 1.8; color: #cbd5e0; margin-bottom: 50px; }}
-            .price-display {{ font-size: 36px; color: #d4af37; font-weight: bold; text-shadow: 0 0 15px rgba(212,175,55,0.3); margin: 30px 0; }}
-            .table-spec {{ width: 80%; margin: 30px auto; border-collapse: collapse; }}
-            .table-spec td {{ padding: 10px; border-bottom: 1px solid rgba(212,175,55,0.2); text-align: left; font-size: 14px; }}
-            .table-spec td.label {{ color: #d4af37; font-weight: bold; }}
-            .footer-sig {{ margin-top: 60px; font-size: 14px; color: #a0aec0; display: flex; justify-content: space-between; padding: 0 50px; }}
-            .sig-line {{ border-top: 1px solid rgba(212,175,55,0.5); width: 180px; margin-top: 30px; padding-top: 5px; }}
-        </style>
-    </head>
-    <body>
-        <div class="border-outer">
-            <div class="border-inner">
-                <span class="cert-id">CERTIFICATE NO: {cert_id}</span>
-                <div class="header-title">⚜️ ESTATEX APPRAISAL CERTIFICATE ⚜️</div>
-                <div class="subtitle">Official Valuation Declaration</div>
-                
-                <div class="cert-body">
-                    This document formally certifies the machine-learning derived market appraisal for the premium residential asset configured below. Valuation has been computed using multi-variable regression planes adjusted for local state surcharges and location premium indexes.
-                </div>
-                
-                <div class="price-display">₹{price:,}</div>
-                
-                <table class="table-spec">
-                    <tr><td class="label">Assigned Location</td><td>{loc}</td></tr>
-                    <tr><td class="label">Property Classification</td><td>{ptype}</td></tr>
-                    <tr><td class="label">Total Carpet Area</td><td>{area} Sq Ft</td></tr>
-                    <tr><td class="label">Bedrooms (BHK)</td><td>{beds} BHK</td></tr>
-                    <tr><td class="label">Bathrooms</td><td>{baths} Bathrooms</td></tr>
-                    <tr><td class="label">Appraisal Timestamp</td><td>{today}</td></tr>
-                </table>
-                
-                <div class="footer-sig">
-                    <div>
-                        <div class="sig-line">EstateX ML Engine</div>
-                        Authorized Digital Seal
-                    </div>
-                    <div>
-                        <div class="sig-line">Rajan Sethi</div>
-                        Senior Registrar Audit
-                    </div>
-                </div>
-            </div>
-        </div>
-    </body>
-    </html>
-    """
-    return html
-
+                save_records([])
+                st.rerun()
 # ═════════════════════════════════════════════════════════════════════════════
-# TAB 1: AI VALUATION ENGINE
+# TAB 6: STATE-WISE TAX & CLOSING COST CALCULATOR
 # ═════════════════════════════════════════════════════════════════════════════
-if st.session_state.current_view == "🏠 AI Valuation Engine":
-    st.markdown("<h2 style='color:#d4af37;'>🏠 AI Property Appraiser</h2>", unsafe_allow_html=True)
-    
-    col_inputs, col_visualizer = st.columns([1.8, 2.2])
-    
-    with col_inputs:
+elif st.session_state.current_view == "🏛️ Tax & Costs":
+    st.markdown("<h2 style='color:#d4af37;'>🏛️ State-wise Tax & Closing Cost Calculator</h2>", unsafe_allow_html=True)
+    st.markdown("<p style='color:#8a99ad;'>Compute all government charges, duties, and on-road property price for your selected Indian metro.</p>", unsafe_allow_html=True)
+    STATE_TAX_DATA = {
+        "Mumbai (Maharashtra)": {"stamp": 6.0, "reg": 1.0, "gst_ready": 5.0, "gst_uc": 12.0, "metro": "MMRDA Cess: 1%"},
+        "Delhi (NCT)": {"stamp": 6.0, "reg": 1.0, "gst_ready": 5.0, "gst_uc": 12.0, "metro": "DMRC Surcharge: 0.5%"},
+        "Gurugram (Haryana)": {"stamp": 7.0, "reg": 1.0, "gst_ready": 5.0, "gst_uc": 12.0, "metro": "Haryana Urban Dev: 0.5%"},
+        "Bangalore (Karnataka)": {"stamp": 5.6, "reg": 1.0, "gst_ready": 5.0, "gst_uc": 12.0, "metro": "BBMP Cess: 0.5%"},
+        "Hyderabad (Telangana)": {"stamp": 4.0, "reg": 0.5, "gst_ready": 5.0, "gst_uc": 12.0, "metro": "GHMC Surcharge: 0.5%"},
+        "Chennai (Tamil Nadu)": {"stamp": 7.0, "reg": 1.0, "gst_ready": 5.0, "gst_uc": 12.0, "metro": "CMDA Levy: 0.5%"},
+        "Pune (Maharashtra)": {"stamp": 6.0, "reg": 1.0, "gst_ready": 5.0, "gst_uc": 12.0, "metro": "PMC Cess: 1%"},
+    }
+    col_tc1, col_tc2 = st.columns([1.2, 1.8])
+    with col_tc1:
         st.markdown('<div class="glass-card">', unsafe_allow_html=True)
-        st.markdown("<h3 style='color:#d4af37; margin-top:0;'>🧬 Configuration Parameters</h3>", unsafe_allow_html=True)
-        
-        selected_loc = st.selectbox("Elite Neighborhood Location", list(LOCATIONS.keys()))
-        selected_type = st.selectbox("Architectural Property Type", list(PROP_TYPES.keys()))
-        
-        area_size = st.slider("Covered Carpet Area (sq ft)", min_value=500, max_value=5000, value=1500, step=50)
-        bhk_count = st.number_input("Bedrooms (BHK)", min_value=1, max_value=6, value=3, step=1)
-        bath_count = st.number_input("Bathrooms", min_value=1, max_value=5, value=2, step=1)
-        
-        blueprint_style = st.selectbox("Blueprint Visual Theme", ["Champagne Classic", "Cyberpunk Blue", "Blueprint Minimal", "Emerald Eco"])
-        
-        st.markdown("<br>", unsafe_allow_html=True)
-        trigger_valuation = st.button("🔱 Run AI Valuation", use_container_width=True)
+        st.markdown("**📍 Property Details**")
+        tax_city = st.selectbox("Select City / State", list(STATE_TAX_DATA.keys()), key="tax_city")
+        tax_price = st.number_input("Base Property Price (₹)", min_value=500000, max_value=500000000, value=8500000, step=100000, key="tax_price")
+        prop_status = st.radio("Property Status", ["Ready-to-Move", "Under Construction"], horizontal=True, key="tax_status")
+        brokerage_pct = st.slider("Brokerage % (negotiable)", 0.0, 3.0, 1.0, 0.1, key="tax_brokerage")
         st.markdown('</div>', unsafe_allow_html=True)
-        
-    with col_visualizer:
-        st.markdown("#### 📐 Live Technical Blueprint Sketch")
-        blueprint_code = draw_detailed_blueprint(bhk_count, bath_count, area_size, style=blueprint_style)
-        st.components.v1.html(blueprint_code, height=330)
-        st.caption("Live structural blueprint mapping with dynamic theme colors, doors, beds, dining tables, sofa sets, and bath fittings.")
-
-    if trigger_valuation or "last_val" not in st.session_state:
-        raw_price = model.predict([[area_size, bhk_count, bath_count]])[0]
-        
-        loc_mult = LOCATIONS[selected_loc]["mult"]
-        type_mult = PROP_TYPES[selected_type]["mult"]
-        
-        final_val = int(raw_price * loc_mult * type_mult)
-        final_val = max(1800000, final_val)
-        
-        st.session_state.last_val = {
-            "val": final_val, "loc": selected_loc, "type": selected_type,
-            "area": area_size, "beds": bhk_count, "baths": bath_count,
-            "raw": raw_price
-        }
-        
-        st.session_state.valuation_history.append({
-            "timestamp": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),
-            "location": selected_loc,
-            "property_type": selected_type,
-            "area": area_size,
-            "bedrooms": bhk_count,
-            "bathrooms": bath_count,
-            "valuation": final_val
-        })
-        save_records(st.session_state.valuation_history)
-
-    curr_val = st.session_state.last_val
-    
-    st.markdown('<div class="glass-card">', unsafe_allow_html=True)
-    col_p_left, col_p_right = st.columns([2.2, 1.8])
-    with col_p_left:
+    with col_tc2:
+        td = STATE_TAX_DATA[tax_city]
+        stamp_amt   = tax_price * td["stamp"] / 100
+        reg_amt     = tax_price * td["reg"] / 100
+        gst_rate    = td["gst_ready"] if prop_status == "Ready-to-Move" else td["gst_uc"]
+        gst_amt     = tax_price * gst_rate / 100
+        broker_amt  = tax_price * brokerage_pct / 100
+        legal_misc  = tax_price * 0.005  # 0.5% fixed legal/misc
+        total_extra = stamp_amt + reg_amt + gst_amt + broker_amt + legal_misc
+        on_road     = tax_price + total_extra
+        rows_data = [
+            ("🏠 Base Property Price",     tax_price,    "#e0f0ff"),
+            (f"📝 Stamp Duty ({td['stamp']}%)", stamp_amt, "#f77f00"),
+            (f"📋 Registration Fee ({td['reg']}%)", reg_amt, "#f77f00"),
+            (f"🧾 GST ({gst_rate}% – {prop_status})", gst_amt, "#ef476f"),
+            (f"🤝 Brokerage ({brokerage_pct}%)",  broker_amt, "#d4af37"),
+            ("⚖️ Legal / Misc (0.5%)",     legal_misc,   "#8a99ad"),
+            ("🔖 " + td["metro"],          0,            "#8a99ad"),
+        ]
+        table_rows = "".join([
+            f"<tr><td style='padding:8px 12px; color:{c};'>{n}</td><td style='padding:8px 12px; text-align:right; color:{c}; font-weight:600;'>₹{int(v):,}</td></tr>"
+            for n, v, c in rows_data
+        ])
         st.markdown(f"""
-        <div style='text-transform: uppercase; font-size:0.8rem; letter-spacing:1px; color: rgba(255,255,255,0.4);'>Appraised Market Valuation</div>
-        <div class="glow-text glow-val">₹{curr_val['val']:,}</div>
-        <div class="sub-section">
-            <strong>Neighborhood Premium Multiplier ({curr_val['loc'].split(' (')[0]}):</strong> {LOCATIONS[curr_val['loc']]['mult']}x<br>
-            <strong>Property Class Accent Factor ({curr_val['type']}):</strong> {PROP_TYPES[curr_val['type']]['mult']}x<br>
-            <strong>Base Structural Prediction (ML Model):</strong> ₹{int(curr_val['raw']):,}
+        <div class="glass-card">
+          <div style='font-size:1.1rem; font-weight:700; color:#d4af37; margin-bottom:1rem;'>💰 Cost Breakdown — {tax_city}</div>
+          <table style='width:100%; border-collapse:collapse;'>
+            <thead>
+              <tr style='border-bottom:1px solid rgba(212,175,55,0.3);'>
+                <th style='padding:8px 12px; text-align:left; color:#8a99ad; font-weight:600;'>Charge Head</th>
+                <th style='padding:8px 12px; text-align:right; color:#8a99ad; font-weight:600;'>Amount</th>
+              </tr>
+            </thead>
+            <tbody>{table_rows}</tbody>
+          </table>
+          <hr style='border-color:rgba(212,175,55,0.2); margin:1rem 0;'>
+          <div style='display:flex; justify-content:space-between; align-items:center;'>
+            <div style='font-size:1rem; color:#8a99ad;'>Total Extra Charges</div>
+            <div style='font-size:1.2rem; font-weight:700; color:#ef476f;'>₹{int(total_extra):,}</div>
+          </div>
+          <div style='display:flex; justify-content:space-between; align-items:center; margin-top:0.8rem; padding:1rem; background:rgba(212,175,55,0.08); border-radius:12px; border:1px solid rgba(212,175,55,0.3);'>
+            <div style='font-size:1.1rem; color:#d4af37; font-weight:700;'>🏆 On-Road Property Price</div>
+            <div style='font-size:1.8rem; font-weight:800; color:#d4af37;'>₹{int(on_road):,}</div>
+          </div>
         </div>
         """, unsafe_allow_html=True)
-        
-        cert_html = generate_html_certificate(curr_val['loc'], curr_val['type'], curr_val['area'], curr_val['beds'], curr_val['baths'], curr_val['val'])
-        st.download_button(
-            label="🏆 Download Appraisal Certificate (HTML)",
-            data=cert_html,
-            file_name="estate_appraisal_certificate.html",
-            mime="text/html",
-            use_container_width=True
-        )
-        
-    with col_p_right:
-        st.markdown("##### 🧬 Price Contribution Factor Model")
-        contributions = {
-            "Base Area Cost": int(curr_val['area'] * 3500),
-            "BHK Bedroom Multiplier": int(curr_val['beds'] * 800000),
-            "Bathrooms Allocation": int(curr_val['baths'] * 400000),
-            "Location Premium Surcharge": int(curr_val['val'] - curr_val['raw'] * type_mult),
-            "Architectural Surcharge": int((curr_val['raw'] * type_mult) - curr_val['raw'])
-        }
-        contributions = {k: max(0, v) for k, v in contributions.items()}
-        
-        fig_bar = go.Figure(go.Bar(
-            y=list(contributions.keys()), x=list(contributions.values()),
-            orientation="h", marker=dict(color=["#2c3047", "#1f485c", "#0f6c82", "#d4af37", "#00f5d4"])
+        # Donut chart
+        labels = ["Base Price", "Stamp Duty", "Registration", "GST", "Brokerage", "Legal/Misc"]
+        values = [tax_price, stamp_amt, reg_amt, gst_amt, broker_amt, legal_misc]
+        colors = ["#1a1f35", "#f77f00", "#ef476f", "#d4af37", "#00f5d4", "#8a99ad"]
+        fig_donut = go.Figure(go.Pie(
+            labels=labels, values=values, hole=0.55,
+            marker=dict(colors=colors, line=dict(color="#050609", width=2)),
+            textinfo="percent", textfont=dict(color="#fff", size=11),
+            hovertemplate="<b>%{label}</b><br>₹%{value:,.0f}<extra></extra>",
         ))
-        fig_bar.update_layout(
-            paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-            font=dict(color="#cbd5e1", size=10), height=160, margin=dict(t=5, b=5, l=5, r=5),
-            xaxis=dict(showticklabels=False, gridcolor="rgba(255,255,255,0.05)"),
-            yaxis=dict(gridcolor="rgba(255,255,255,0.05)")
+        fig_donut.update_layout(
+            paper_bgcolor="rgba(0,0,0,0)", font=dict(color="#e0f4ff"),
+            annotations=[dict(text=f"₹{int(on_road/1e7):.1f}Cr", font_size=18, showarrow=False, font_color="#d4af37")],
+            legend=dict(bgcolor="rgba(0,0,0,0)", font=dict(color="#e0f0ff")),
+            height=320, margin=dict(t=10, b=10)
         )
-        st.plotly_chart(fig_bar, use_container_width=True)
-    st.markdown('</div>', unsafe_allow_html=True)
-
-    # State-wise Closing Costs & True On-Road Price Calculator
-    st.markdown('<div class="glass-card">', unsafe_allow_html=True)
-    st.markdown("<h3 style='color:#d4af37; margin-top:0;'>📋 State Taxes & Closing Cost breakdown</h3>", unsafe_allow_html=True)
-    
-    loc_meta = LOCATIONS[curr_val['loc']]
-    stamp_rate = loc_meta["stamp_duty"]
-    gst_rate = loc_meta["gst"]
-    
-    stamp_cost = int(curr_val['val'] * (stamp_rate / 100))
-    gst_cost = int(curr_val['val'] * (gst_rate / 100))
-    brokerage_cost = int(curr_val['val'] * 0.01)
-    
-    reg_rate = loc_meta["reg_fee"]
-    if reg_rate == 1.0:
-        reg_cost = int(curr_val['val'] * 0.01)
-    else:
-        reg_cost = int(reg_rate)
-        
-    on_road_price = curr_val['val'] + stamp_cost + reg_cost + gst_cost + brokerage_cost
-    
-    col_c1, col_c2 = st.columns([2.2, 1.8])
-    with col_c1:
+        st.plotly_chart(fig_donut, use_container_width=True)
+# ═════════════════════════════════════════════════════════════════════════════
+# TAB 7: AI DEAL NEGOTIATOR SIMULATOR
+# ═════════════════════════════════════════════════════════════════════════════
+elif st.session_state.current_view == "🤝 Deal Negotiator":
+    st.markdown("<h2 style='color:#d4af37;'>🤝 AI Deal Negotiator Simulator</h2>", unsafe_allow_html=True)
+    st.markdown("<p style='color:#8a99ad;'>Simulate a live negotiation with AI seller/broker personas. Craft your pitch and see if the deal closes!</p>", unsafe_allow_html=True)
+    PERSONAS = {
+        "Mr. Rajan — Stubborn Old-School Landlord 🏚️": {
+            "desc": "Emotional, traditional. Values family connections, cash payments, and quick no-fuss handovers. Hates investors.",
+            "weights": {"price_ratio": 0.45, "down_pct": 0.25, "timeline": 0.15, "strategy": 0.15},
+            "strategy_boost": {"Family Story & Emotional Appeal": 20, "Cash Deal Offer": 15, "ROI / Investment Pitch": -10, "Developer Comparison Pressure": -5},
+        },
+        "Pooja — Eager Commission Broker 💼": {
+            "desc": "Commission-focused. Loves fast closings and bonus incentives. Responds well to enthusiasm and quick decisions.",
+            "weights": {"price_ratio": 0.30, "down_pct": 0.15, "timeline": 0.35, "strategy": 0.20},
+            "strategy_boost": {"Cash Deal Offer": 10, "Quick Close Promise": 25, "ROI / Investment Pitch": 5, "Family Story & Emotional Appeal": 0},
+        },
+        "Vikram — Analytical VC Seller 📊": {
+            "desc": "Data-driven. Demands logical ROI justification and structured payment plans. Won't budge without numbers.",
+            "weights": {"price_ratio": 0.35, "down_pct": 0.20, "timeline": 0.10, "strategy": 0.35},
+            "strategy_boost": {"ROI / Investment Pitch": 30, "Developer Comparison Pressure": 15, "Cash Deal Offer": 5, "Family Story & Emotional Appeal": -15},
+        },
+    }
+    col_neg1, col_neg2 = st.columns([1.3, 1.7])
+    with col_neg1:
+        st.markdown('<div class="glass-card">', unsafe_allow_html=True)
+        st.markdown("**🎯 Your Offer Details**")
+        persona_name = st.selectbox("Select Seller / Broker", list(PERSONAS.keys()), key="neg_persona")
+        asking_price = st.number_input("Seller's Asking Price (₹)", value=12000000, step=100000, key="neg_asking")
+        offer_price  = st.number_input("Your Offer Price (₹)",     value=10500000, step=100000, key="neg_offer")
+        down_pct     = st.slider("Down Payment (%)", 10, 80, 30, 5, key="neg_down")
+        timeline_mo  = st.slider("Closure Timeline (months)", 1, 24, 3, 1, key="neg_timeline")
+        strategy     = st.selectbox("Your Pitch Strategy",
+            ["Family Story & Emotional Appeal", "Cash Deal Offer", "Quick Close Promise",
+             "ROI / Investment Pitch", "Developer Comparison Pressure"], key="neg_strategy")
+        neg_notes    = st.text_area("Your Opening Statement", placeholder="Write your opening pitch here...", key="neg_notes")
+        run_neg      = st.button("🚀 Send Offer & Negotiate", use_container_width=True, key="run_neg")
+        st.markdown('</div>', unsafe_allow_html=True)
+    with col_neg2:
+        p = PERSONAS[persona_name]
         st.markdown(f"""
-        <div style="font-size:0.8rem; color:rgba(255,255,255,0.4); text-transform:uppercase;">Estimated On-Road Price (All-Inclusive)</div>
-        <div class="glow-val-cyan" style="font-size: 2.2rem; margin-bottom:1rem;">₹{on_road_price:,}</div>
-        
-        <table style="width:100%; border:none;">
-            <tr><td style="color:#d4af37;">Base Property Appraisal</td><td style="text-align:right;">₹{curr_val['val']:,}</td></tr>
-            <tr><td>Stamp Duty ({stamp_rate}%)</td><td style="text-align:right;">₹{stamp_cost:,}</td></tr>
-            <tr><td>Registration Fees</td><td style="text-align:right;">₹{reg_cost:,}</td></tr>
-            <tr><td>GST ({gst_rate}%)</td><td style="text-align:right;">₹{gst_cost:,}</td></tr>
-            <tr><td>Standard Brokerage Fees (1%)</td><td style="text-align:right;">₹{brokerage_cost:,}</td></tr>
-        </table>
+        <div class="glass-card" style="border-color:rgba(0,245,212,0.25);">
+          <div style='font-size:1.1rem; font-weight:700; color:#00f5d4; margin-bottom:0.5rem;'>{persona_name}</div>
+          <div style='font-size:0.9rem; color:#8a99ad; margin-bottom:1rem;'>{p['desc']}</div>
+          <div style='display:grid; grid-template-columns:1fr 1fr; gap:0.6rem;'>
+            <div style='background:rgba(0,245,212,0.05); border-radius:8px; padding:0.7rem; text-align:center;'><div style='font-size:0.7rem; color:#8a99ad;'>PRICE SENSITIVITY</div><div style='color:#d4af37; font-weight:700;'>{int(p['weights']['price_ratio']*100)}%</div></div>
+            <div style='background:rgba(0,245,212,0.05); border-radius:8px; padding:0.7rem; text-align:center;'><div style='font-size:0.7rem; color:#8a99ad;'>DOWN PMT WEIGHT</div><div style='color:#d4af37; font-weight:700;'>{int(p['weights']['down_pct']*100)}%</div></div>
+            <div style='background:rgba(0,245,212,0.05); border-radius:8px; padding:0.7rem; text-align:center;'><div style='font-size:0.7rem; color:#8a99ad;'>TIMELINE WEIGHT</div><div style='color:#d4af37; font-weight:700;'>{int(p['weights']['timeline']*100)}%</div></div>
+            <div style='background:rgba(0,245,212,0.05); border-radius:8px; padding:0.7rem; text-align:center;'><div style='font-size:0.7rem; color:#8a99ad;'>STRATEGY WEIGHT</div><div style='color:#d4af37; font-weight:700;'>{int(p['weights']['strategy']*100)}%</div></div>
+          </div>
+        </div>
         """, unsafe_allow_html=True)
-    with col_c2:
-        cc_labels = ["Property Cost", "Stamp Duty", "Registration", "GST Surcharge", "Brokerage Commission"]
-        cc_values = [curr_val['val'], stamp_cost, reg_cost, gst_cost, brokerage_cost]
-        
-        fig_cc_pie = go.Figure(data=[go.Pie(labels=cc_labels, values=cc_values, hole=.5, marker=dict(colors=["#1a1f33", "#d4af37", "#00f5d4", "#e11d48", "#f59e0b"]))])
-        fig_cc_pie.update_layout(
-            paper_bgcolor="rgba(0,0,0,0)", font=dict(color="#f0f5ff", size=9),
-            height=220, margin=dict(t=10, b=10, l=10, r=10),
-            legend=dict(orientation="h", yanchor="top", y=-0.1, xanchor="center", x=0.5)
-        )
-        st.plotly_chart(fig_cc_pie, use_container_width=True)
-    st.markdown('</div>', unsafe_allow_html=True)
-
-    # 🤝 INTERACTIVE AI DEAL NEGOTIATOR SIMULATOR
-    st.markdown('<div class="glass-card">', unsafe_allow_html=True)
-    st.markdown("<h3 style='color:#d4af37; margin-top:0;'>🤝 Interactive AI Deal Negotiator</h3>", unsafe_allow_html=True)
-    st.write("Pitch your proposal terms to negotiate a property deal. Choose different owner personalities to test your strategies.")
-    
-    col_neg_left, col_neg_right = st.columns([1.5, 2.5])
-    
-    with col_neg_left:
-        selected_opponent = st.selectbox("Choose Seller Representative", [
-            "Mr. Rajan (Stubborn Old-School Landlord)",
-            "Pooja (Eager Commissions-Hungry Broker)",
-            "Vikram (Savvy Venture Capitalist Seller)"
-        ])
-        
-        neg_offer = st.slider("Your Offer Price (₹)", min_value=int(curr_val['val']*0.7), max_value=int(curr_val['val']*1.1), value=int(curr_val['val']*0.95), step=100000)
-        neg_downpay = st.slider("Down Payment Offer (%)", min_value=10, max_value=80, value=20, step=5)
-        neg_timeline = st.slider("Closure Timeline (Weeks)", min_value=1, max_value=12, value=4)
-        neg_strategy = st.selectbox("Negotiation Focus", [
-            "Analytical Market Facts & ROI Arguments",
-            "Upfront Cash & High Down-Payment Leverage",
-            "Emotional Appeal & Family Story",
-            "Brokerage Sweetener & Quick Close"
-        ])
-        
-        start_negotiate = st.button("💬 Pitch Proposal to Seller", use_container_width=True)
-        
-    with col_neg_right:
-        st.markdown("##### 📨 Negotiation Chat Logs")
-        if start_negotiate:
-            ratio = neg_offer / curr_val['val']
-            prob = 0.0
-            
-            if ratio >= 1.0:
-                prob = 80.0
-            elif ratio >= 0.95:
-                prob = 55.0
-            elif ratio >= 0.90:
-                prob = 35.0
-            elif ratio >= 0.80:
-                prob = 15.0
+        if run_neg:
+            price_ratio   = min(offer_price / asking_price, 1.0)
+            price_score   = max(0, (price_ratio - 0.80) / 0.20) * 100
+            down_score    = min(100, (down_pct / 50) * 100)
+            timeline_score = max(0, 100 - (timeline_mo - 1) * 4)
+            strat_bonus    = p["strategy_boost"].get(strategy, 0)
+            strategy_score = max(0, min(100, 50 + strat_bonus))
+            raw = (
+                p["weights"]["price_ratio"]  * price_score +
+                p["weights"]["down_pct"]      * down_score +
+                p["weights"]["timeline"]      * timeline_score +
+                p["weights"]["strategy"]      * strategy_score
+            )
+            acceptance_prob = min(95, max(5, raw))
+            if acceptance_prob >= 70:
+                outcome = "✅ DEAL ACCEPTED!"
+                color   = "#06d6a0"
+                msg     = "Congratulations! The seller is ready to sign. Proceed to due diligence and legal documentation."
+            elif acceptance_prob >= 45:
+                outcome = "🤔 COUNTER-OFFER LIKELY"
+                color   = "#f77f00"
+                msg     = f"The seller will likely counter. Consider improving your down payment or shortening the timeline."
             else:
-                prob = 2.0
-                
-            response = ""
-            acceptance_status = "REJECTED"
-            
-            if selected_opponent == "Mr. Rajan (Stubborn Old-School Landlord)":
-                if neg_downpay >= 40:
-                    prob += 20
-                if neg_strategy == "Emotional Appeal & Family Story":
-                    prob += 15
-                if ratio < 0.92:
-                    prob -= 30
-                    
-                if prob >= 70:
-                    acceptance_status = "ACCEPTED"
-                    response = "Beta, you sound like a good family person. The cash down payment is also decent. Let's register this house next Monday!"
-                elif prob >= 45:
-                    acceptance_status = "COUNTER OFFER"
-                    counter_price = int(curr_val['val'] * 0.97)
-                    response = f"Look, I can't go that low. This home has many memories. If you can do ₹{counter_price:,} with at least 35% down-payment, we have a deal."
-                else:
-                    response = "No deal! Young folks today think they can lowball for premium property. Go look elsewhere."
-                    
-            elif selected_opponent == "Pooja (Eager Commissions-Hungry Broker)":
-                if neg_strategy == "Brokerage Sweetener & Quick Close":
-                    prob += 25
-                if neg_timeline <= 2:
-                    prob += 15
-                if ratio < 0.88:
-                    prob -= 15
-                    
-                if prob >= 65:
-                    acceptance_status = "ACCEPTED"
-                    response = "Deal accepted! I will pressure the owner to sign immediately. A quick, clean transaction is exactly what everyone wanted."
-                elif prob >= 40:
-                    acceptance_status = "COUNTER OFFER"
-                    counter_price = int(curr_val['val'] * 0.94)
-                    response = f"I think the seller can do ₹{counter_price:,} if we sign the contract by this Friday. Shall I prepare the documents?"
-                else:
-                    response = "The seller won't even read this proposal. We need to present a realistic price to move forward."
-                    
-            else: # Vikram VC
-                if neg_strategy == "Analytical Market Facts & ROI Arguments":
-                    prob += 25
-                if neg_downpay >= 30:
-                    prob += 10
-                if neg_strategy == "Emotional Appeal & Family Story":
-                    prob -= 20
-                    
-                if prob >= 70:
-                    acceptance_status = "ACCEPTED"
-                    response = "Your valuation numbers make financial sense. The liquidity and timeline match my portfolio requirements. Proceed to escrow."
-                elif prob >= 45:
-                    acceptance_status = "COUNTER OFFER"
-                    counter_price = int(curr_val['val'] * 0.96)
-                    response = f"My capital models require a return close to ₹{counter_price:,} for exit targets. Let me know if you can match this threshold."
-                else:
-                    response = "This offer fails to meet my minimum hurdle rate. The emotional appeals are irrelevant. Proposal rejected."
-            
-            status_color = "#00f5d4" if acceptance_status == "ACCEPTED" else ("#f59e0b" if acceptance_status == "COUNTER OFFER" else "#e11d48")
-            
+                outcome = "❌ OFFER REJECTED"
+                color   = "#ef233c"
+                msg     = "The seller is not interested. Re-evaluate your price or change your pitch strategy."
             st.markdown(f"""
-            <div class="chat-bubble-owner">
-                <div class="chat-label">{selected_opponent}</div>
-                "{response}"
-            </div>
-            <div style="text-align:center; padding:10px; border-radius:8px; background:rgba(255,255,255,0.02); border: 1px solid {status_color};">
-                STATUS: <strong style="color:{status_color};">{acceptance_status}</strong> (Acceptance Likelihood: {max(0, min(100, int(prob)))}%)
+            <div style='background:rgba({"6,214,160" if acceptance_prob>=70 else "247,127,0" if acceptance_prob>=45 else "239,35,60"},0.1);
+                        border:2px solid {color}; border-radius:16px; padding:1.5rem; text-align:center; margin-top:1rem;'>
+              <div style='font-size:1.8rem; font-weight:800; color:{color};'>{outcome}</div>
+              <div style='font-size:3rem; font-weight:900; color:{color}; margin:0.5rem 0;'>{acceptance_prob:.0f}%</div>
+              <div style='font-size:0.85rem; color:#8a99ad;'>Acceptance Probability</div>
+              <div style='font-size:0.9rem; color:#cbd5e1; margin-top:1rem;'>{msg}</div>
             </div>
             """, unsafe_allow_html=True)
-        else:
-            st.info("Input proposal parameters and click the button to pitch your offer.")
-    st.markdown('</div>', unsafe_allow_html=True)
-
-    # 10-Year Compound Forecast
-    st.markdown('<div class="glass-card">', unsafe_allow_html=True)
-    st.markdown("<h3 style='color:#d4af37; margin-top:0;'>📈 10-Year Future Wealth Appreciation Curve</h3>", unsafe_allow_html=True)
-    years = [f"Year {i}" for i in range(11)]
-    vals_conservative = [curr_val['val'] * (1.062 ** i) for i in range(11)]
-    vals_aggressive = [curr_val['val'] * (1.095 ** i) for i in range(11)]
-    
-    fig_line = go.Figure()
-    fig_line.add_trace(go.Scatter(
-        x=years, y=vals_aggressive, mode="lines",
-        line=dict(color="#00f5d4", width=2.5, dash="dash"),
-        name="Market Bull Run Scenario (9.5% CAGR)"
-    ))
-    fig_line.add_trace(go.Scatter(
-        x=years, y=vals_conservative, fill="tonexty", mode="lines+markers",
-        line=dict(color="#d4af37", width=3.5),
-        fillcolor="rgba(212, 175, 55, 0.06)",
-        marker=dict(size=7, color="#070b13", line=dict(color="#d4af37", width=2)),
-        name="Conservative Scenario (6.2% CAGR)"
-    ))
-    
-    fig_line.update_layout(
-        paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-        font=dict(color="#cbd5e1"), height=240, margin=dict(t=20, b=10),
-        yaxis=dict(gridcolor="rgba(255,255,255,0.05)"),
-        xaxis=dict(gridcolor="rgba(255,255,255,0.05)")
-    )
-    st.plotly_chart(fig_line, use_container_width=True)
-    st.markdown('</div>', unsafe_allow_html=True)
-
+            # Breakdown gauge chart
+            fig_gauge = go.Figure(go.Indicator(
+                mode="gauge+number",
+                value=acceptance_prob,
+                title={"text": "Deal Acceptance Probability", "font": {"color": "#e0f0ff", "size": 14}},
+                number={"suffix": "%", "font": {"color": color, "size": 40}},
+                gauge={
+                    "axis": {"range": [0, 100], "tickcolor": "#8a99ad"},
+                    "bar": {"color": color, "thickness": 0.25},
+                    "bgcolor": "#0d1117",
+                    "steps": [
+                        {"range": [0, 45],  "color": "rgba(239,35,60,0.12)"},
+                        {"range": [45, 70], "color": "rgba(247,127,0,0.12)"},
+                        {"range": [70, 100],"color": "rgba(6,214,160,0.12)"},
+                    ],
+                },
+            ))
+            fig_gauge.update_layout(
+                paper_bgcolor="rgba(0,0,0,0)", font=dict(color="#e0f0ff"),
+                height=240, margin=dict(t=30, b=10, l=20, r=20)
+            )
+            st.plotly_chart(fig_gauge, use_container_width=True)
+            # Component bar
+            comp_names  = ["Price Score", "Down Pmt Score", "Timeline Score", "Strategy Score"]
+            comp_vals   = [price_score, down_score, timeline_score, strategy_score]
+            comp_colors = ["#d4af37" if v >= 60 else "#ef476f" for v in comp_vals]
+            fig_bars = go.Figure(go.Bar(
+                x=comp_names, y=comp_vals,
+                marker_color=comp_colors,
+                text=[f"{v:.0f}" for v in comp_vals], textposition="outside",
+                textfont=dict(color="#e0f0ff")
+            ))
+            fig_bars.update_layout(
+                paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+                font=dict(color="#e0f0ff"), yaxis=dict(range=[0, 115], gridcolor="rgba(212,175,55,0.1)"),
+                xaxis=dict(showgrid=False), height=240, margin=dict(t=20, b=20)
+            )
+            st.plotly_chart(fig_bars, use_container_width=True)
 # ═════════════════════════════════════════════════════════════════════════════
-# TAB 2: 3D MARKET SPACE
+# TAB 8: INVESTMENT SENSITIVITY HEATMAP
 # ═════════════════════════════════════════════════════════════════════════════
-elif st.session_state.current_view == "📐 3D Market Space":
-    st.markdown("<h2 style='color:#d4af37;'>📐 Interactive 3D Valuation Matrix</h2>", unsafe_allow_html=True)
-    st.write("Drag, rotate, and pinch to inspect the ML regression hyperplane. Adjust metrics on the left panel to witness your property position slide live across the pricing grid.")
-    
-    col_3d_inputs, col_3d_display = st.columns([1.2, 2.8])
-    
-    if "last_val" in st.session_state:
-        init_area = st.session_state.last_val["area"]
-        init_beds = st.session_state.last_val["beds"]
-        init_baths = st.session_state.last_val["baths"]
-        init_loc = st.session_state.last_val["loc"]
-        init_type = st.session_state.last_val["type"]
-    else:
-        init_area, init_beds, init_baths = 1500, 3, 2
-        init_loc = list(LOCATIONS.keys())[0]
-        init_type = list(PROP_TYPES.keys())[0]
-        
-    with col_3d_inputs:
+elif st.session_state.current_view == "🔥 Investment Heatmap":
+    st.markdown("<h2 style='color:#d4af37;'>🔥 Investment Sensitivity Heatmap</h2>", unsafe_allow_html=True)
+    st.markdown("<p style='color:#8a99ad;'>See how 5-Year Return on Equity (ROE) shifts across different mortgage interest rates and annual property appreciation rates.</p>", unsafe_allow_html=True)
+    col_hm1, col_hm2 = st.columns([1, 3])
+    with col_hm1:
         st.markdown('<div class="glass-card">', unsafe_allow_html=True)
-        st.markdown("<h4 style='color:#d4af37; margin-top:0;'>⚙️ Live Tracker</h4>", unsafe_allow_html=True)
-        live_area = st.slider("3D Area Slider", min_value=500, max_value=5000, value=init_area, step=50, key="3d_sl_area")
-        live_beds = st.slider("3D BHK Slider", min_value=1, max_value=6, value=init_beds, step=1, key="3d_sl_beds")
-        live_baths = st.slider("3D Baths Slider", min_value=1, max_value=5, value=init_baths, step=1, key="3d_sl_baths")
-        live_loc = st.selectbox("3D Location Selection", list(LOCATIONS.keys()), key="3d_sl_loc")
-        live_type = st.selectbox("3D Design Selection", list(PROP_TYPES.keys()), key="3d_sl_type")
-        
-        raw_pred = model.predict([[live_area, live_beds, live_baths]])[0]
-        live_val = int(raw_pred * LOCATIONS[live_loc]["mult"] * PROP_TYPES[live_type]["mult"])
-        
-        st.markdown(f"""
-        <div style="margin-top:1.2rem; text-align:center;">
-            <div style="font-size:0.75rem; color:#8a99ad;">VALUATION IN THIS SCENARIO</div>
-            <div class="glow-val" style="font-size:1.6rem;">₹{live_val:,}</div>
-        </div>
-        """, unsafe_allow_html=True)
+        st.markdown("**⚙️ Parameters**")
+        hm_price     = st.number_input("Property Price (₹)", value=10000000, step=500000, key="hm_price")
+        hm_down_pct  = st.slider("Down Payment (%)", 10, 50, 20, 5, key="hm_down")
+        hm_loan_yrs  = st.slider("Loan Tenure (years)", 5, 30, 20, 1, key="hm_years")
+        hm_rent_mo   = st.number_input("Monthly Rent Saved (₹)", value=30000, step=1000, key="hm_rent")
         st.markdown('</div>', unsafe_allow_html=True)
-        
-    with col_3d_display:
-        area_grid = np.linspace(500, 5000, 35)
-        beds_grid = np.linspace(1, 6, 35)
-        A, B = np.meshgrid(area_grid, beds_grid)
-        
-        flat_grid = np.c_[A.ravel(), B.ravel(), np.full(A.size, live_baths)]
-        predicted_prices = model.predict(flat_grid).reshape(A.shape)
-        
-        predicted_prices = predicted_prices * LOCATIONS[live_loc]["mult"] * PROP_TYPES[live_type]["mult"]
-        
-        fig_3d = go.Figure()
-        
-        fig_3d.add_trace(go.Surface(
-            x=area_grid, y=beds_grid, z=predicted_prices,
-            colorscale="Viridis", opacity=0.75, name="ML Regression Plane",
-            showscale=False, hoverinfo="none"
+    with col_hm2:
+        interest_rates   = [r/10 for r in range(60, 125, 5)]   # 6.0% to 12.0%
+        appreciation_rates = [a/10 for a in range(40, 125, 5)] # 4.0% to 12.0%
+        down_payment = hm_price * hm_down_pct / 100
+        loan_amount  = hm_price - down_payment
+        roe_matrix = []
+        for app_rate in appreciation_rates:
+            row = []
+            for int_rate in interest_rates:
+                r_monthly  = int_rate / 100 / 12
+                n_payments = hm_loan_yrs * 12
+                if r_monthly > 0:
+                    emi = loan_amount * r_monthly * (1 + r_monthly)**n_payments / ((1 + r_monthly)**n_payments - 1)
+                else:
+                    emi = loan_amount / n_payments
+                total_interest_5yr = (emi * 60) - (loan_amount - loan_amount * (1 - (1 + r_monthly)**(-60 + n_payments)) / ((1 + r_monthly)**n_payments - 1) if r_monthly > 0 else loan_amount * 60 / n_payments)
+                future_val   = hm_price * ((1 + app_rate / 100) ** 5)
+                capital_gain = future_val - hm_price
+                rent_benefit = hm_rent_mo * 12 * 5
+                net_return   = capital_gain + rent_benefit - (emi * 60 - loan_amount)
+                equity_invested = down_payment
+                roe = (net_return / equity_invested) * 100
+                row.append(round(roe, 1))
+            roe_matrix.append(row)
+        x_labels = [f"{r:.1f}%" for r in interest_rates]
+        y_labels = [f"{a:.1f}%" for a in appreciation_rates]
+        fig_heat = go.Figure(go.Heatmap(
+            z=roe_matrix,
+            x=x_labels,
+            y=y_labels,
+            colorscale=[
+                [0.0,  "#ef233c"],
+                [0.25, "#f77f00"],
+                [0.5,  "#d4af37"],
+                [0.75, "#00f5d4"],
+                [1.0,  "#06d6a0"],
+            ],
+            text=[[f"{v:.0f}%" for v in row] for row in roe_matrix],
+            texttemplate="%{text}",
+            textfont=dict(size=10, color="#fff"),
+            hovertemplate="Interest Rate: <b>%{x}</b><br>Appreciation: <b>%{y}</b><br>5-Yr ROE: <b>%{z:.1f}%</b><extra></extra>",
+            colorbar=dict(
+                title="5-Yr ROE (%)",
+                titlefont=dict(color="#e0f0ff"),
+                tickfont=dict(color="#e0f0ff"),
+                thickness=14,
+            )
         ))
-        
-        scaled_market_prices = df_market["price"] * LOCATIONS[live_loc]["mult"] * PROP_TYPES[live_type]["mult"]
-        fig_3d.add_trace(go.Scatter3d(
-            x=df_market["area"], y=df_market["bedrooms"], z=scaled_market_prices,
-            mode="markers", marker=dict(size=3, color="#d4af37", opacity=0.4),
-            name="Comparable Market Properties"
-        ))
-        
-        fig_3d.add_trace(go.Scatter3d(
-            x=[live_area], y=[live_beds], z=[live_val],
-            mode="markers", marker=dict(size=14, color="#00f5d4", symbol="diamond", line=dict(color="#ffffff", width=2)),
-            name="Your Property Coordinate", hovertext=f"Area: {live_area} sqft<br>BHK: {live_beds}<br>Price: ₹{live_val:,}"
-        ))
-        
-        fig_3d.update_layout(
-            paper_bgcolor="rgba(0,0,0,0)", font=dict(color="#cbd5e1", size=11),
-            height=500, margin=dict(l=0, r=0, t=10, b=0),
-            scene=dict(
-                xaxis=dict(title="Area (sq ft)", backgroundcolor="#0c0f17", gridcolor="rgba(255,255,255,0.06)"),
-                yaxis=dict(title="Bedrooms", backgroundcolor="#0c0f17", gridcolor="rgba(255,255,255,0.06)"),
-                zaxis=dict(title="Price (₹)", backgroundcolor="#0c0f17", gridcolor="rgba(255,255,255,0.06)")
-            ),
-            legend=dict(yanchor="top", y=0.9, xanchor="left", x=0.1)
+        fig_heat.update_layout(
+            xaxis=dict(title="Mortgage Interest Rate", tickfont=dict(color="#8a99ad"), titlefont=dict(color="#d4af37")),
+            yaxis=dict(title="Annual Appreciation Rate", tickfont=dict(color="#8a99ad"), titlefont=dict(color="#d4af37")),
+            paper_bgcolor="rgba(0,0,0,0)",
+            plot_bgcolor="rgba(0,0,0,0)",
+            font=dict(color="#e0f0ff"),
+            height=520,
+            margin=dict(t=20, b=60, l=20, r=20)
         )
-        st.plotly_chart(fig_3d, use_container_width=True)
-
-# ═════════════════════════════════════════════════════════════════════════════
-# TAB 3: OPTION COMPARATOR
-# ═════════════════════════════════════════════════════════════════════════════
-elif st.session_state.current_view == "⚖️ Option Comparator":
-    st.markdown("<h2 style='color:#d4af37;'>⚖️ Side-by-Side Property Comparator</h2>", unsafe_allow_html=True)
-    st.write("Compare two distinct property profiles to analyze size variance, structural premiums, and cost efficiency.")
-    
-    col_prop_a, col_prop_b = st.columns(2)
-    
-    with col_prop_a:
-        st.markdown('<div class="glass-card">', unsafe_allow_html=True)
-        st.markdown("<h3 style='color:#d4af37; margin-top:0;'>🏠 Property Profile A</h3>", unsafe_allow_html=True)
-        loc_a = st.selectbox("Location (A)", list(LOCATIONS.keys()), index=0)
-        type_a = st.selectbox("Property Type (A)", list(PROP_TYPES.keys()), index=0)
-        area_a = st.number_input("Area: Sq Ft (A)", min_value=500, max_value=5000, value=1200, step=100)
-        bhk_a = st.number_input("Bedrooms: BHK (A)", min_value=1, max_value=6, value=2, step=1)
-        bath_a = st.number_input("Bathrooms (A)", min_value=1, max_value=5, value=1, step=1)
-        
-        price_a = int(model.predict([[area_a, bhk_a, bath_a]])[0] * LOCATIONS[loc_a]["mult"] * PROP_TYPES[type_a]["mult"])
-        price_a = max(1800000, price_a)
-        sqft_cost_a = int(price_a / area_a)
-        
-        st.markdown(f"""
-        <div class="sub-section">
-            <div style="font-size:0.75rem; color:#8a99ad;">VALUATION DECLARED</div>
-            <div class="glow-val">₹{price_a:,}</div>
-            <div style="font-size:0.85rem; margin-top:0.4rem;">Price per Sq Ft: <strong>₹{sqft_cost_a:,}</strong></div>
-        </div>
-        """, unsafe_allow_html=True)
-        st.markdown('</div>', unsafe_allow_html=True)
-        
-    with col_prop_b:
-        st.markdown('<div class="glass-card">', unsafe_allow_html=True)
-        st.markdown("<h3 style='color:#00f5d4; margin-top:0;'>🏠 Property Profile B</h3>", unsafe_allow_html=True)
-        loc_b = st.selectbox("Location (B)", list(LOCATIONS.keys()), index=1)
-        type_b = st.selectbox("Property Type (B)", list(PROP_TYPES.keys()), index=1)
-        area_b = st.number_input("Area: Sq Ft (B)", min_value=500, max_value=5000, value=2000, step=100)
-        bhk_b = st.number_input("Bedrooms: BHK (B)", min_value=1, max_value=6, value=3, step=1)
-        bath_b = st.number_input("Bathrooms (B)", min_value=1, max_value=5, value=3, step=1)
-        
-        price_b = int(model.predict([[area_b, bhk_b, bath_b]])[0] * LOCATIONS[loc_b]["mult"] * PROP_TYPES[type_b]["mult"])
-        price_b = max(1800000, price_b)
-        sqft_cost_b = int(price_b / area_b)
-        
-        st.markdown(f"""
-        <div class="sub-section" style="border-left-color: #00f5d4;">
-            <div style="font-size:0.75rem; color:#8a99ad;">VALUATION DECLARED</div>
-            <div class="glow-val-cyan">₹{price_b:,}</div>
-            <div style="font-size:0.85rem; margin-top:0.4rem;">Price per Sq Ft: <strong>₹{sqft_cost_b:,}</strong></div>
-        </div>
-        """, unsafe_allow_html=True)
-        st.markdown('</div>', unsafe_allow_html=True)
-
-    diff_val = price_b - price_a
-    pct_val = (diff_val / price_a) * 100
-    
-    st.markdown('<div class="glass-card" style="text-align:center;">', unsafe_allow_html=True)
-    st.markdown("<h3 style='margin:0;'>📊 Comparison Verdict</h3>", unsafe_allow_html=True)
-    if diff_val > 0:
-        st.markdown(f"<span style='font-size:1.15rem;'>Property B is priced <strong style='color:#00f5d4;'>₹{diff_val:,} ({pct_val:.1f}%)</strong> higher than Property A.</span>", unsafe_allow_html=True)
-    elif diff_val < 0:
-        st.markdown(f"<span style='font-size:1.15rem;'>Property B is priced <strong style='color:#d4af37;'>₹{abs(diff_val):,} ({abs(pct_val):.1f}%)</strong> lower than Property A.</span>", unsafe_allow_html=True)
-    else:
-        st.markdown("<span style='font-size:1.15rem;'>Both property layouts evaluate to identical valuations.</span>", unsafe_allow_html=True)
-        
-    score_a = int(area_a / (bhk_a + bath_a * 0.5))
-    score_b = int(area_b / (bhk_b + bath_b * 0.5))
-    
-    col_c1, col_c2 = st.columns(2)
-    with col_c1:
-        st.markdown(f"""
-        <div class="sub-section">
-            <strong>Room Space Score (A):</strong> {score_a} sqft / unit<br>
-            <span style="font-size:0.8rem; color:#8a99ad;">Represents the average carpet space allocated per bedroom and bathroom. Larger values mean more spacious interiors.</span>
-        </div>
-        """, unsafe_allow_html=True)
-    with col_c2:
-        st.markdown(f"""
-        <div class="sub-section" style="border-left-color: #00f5d4;">
-            <strong>Room Space Score (B):</strong> {score_b} sqft / unit<br>
-            <span style="font-size:0.8rem; color:#8a99ad;">Represents the average carpet space allocated per bedroom and bathroom. Larger values mean more spacious interiors.</span>
-        </div>
-        """, unsafe_allow_html=True)
-    st.markdown('</div>', unsafe_allow_html=True)
-
-# ═════════════════════════════════════════════════════════════════════════════
-# TAB 4: LOAN & ROI MATRIX
-# ═════════════════════════════════════════════════════════════════════════════
-elif st.session_state.current_view == "💰 Loan & ROI Matrix":
-    st.markdown("<h2 style='color:#d4af37;'>💰 Investment Analytics & Mortgage Simulator</h2>", unsafe_allow_html=True)
-    st.write("Simulate financing structures and analyze capital appreciation vs. rental yield projections.")
-    
-    base_val = 7500000
-    if "last_val" in st.session_state:
-        base_val = st.session_state.last_val["val"]
-        
-    col_finance_inputs, col_finance_charts = st.columns([1.5, 2.5])
-    
-    with col_finance_inputs:
-        st.markdown('<div class="glass-card">', unsafe_allow_html=True)
-        st.markdown("<h4 style='color:#d4af37; margin-top:0;'>⚙️ Financing Parameters</h4>", unsafe_allow_html=True)
-        
-        sim_val = st.number_input("Simulated Property Value (₹)", min_value=1500000, max_value=150000000, value=base_val, step=500000)
-        downpayment_pct = st.slider("Down Payment Percentage (%)", min_value=10, max_value=90, value=20, step=5)
-        interest_rate = st.slider("Annual Mortgage Interest (%)", min_value=4.0, max_value=18.0, value=8.5, step=0.1)
-        loan_years = st.selectbox("Loan Tenure Term (Years)", [5, 10, 15, 20, 25, 30], index=3)
-        
-        downpayment = sim_val * (downpayment_pct / 100.0)
-        loan_amount = sim_val - downpayment
-        
-        r = (interest_rate / 100.0) / 12
-        n = loan_years * 12
-        
-        emi = loan_amount * (r * (1 + r)**n) / ((1 + r)**n - 1)
-        total_payment = emi * n
-        total_interest = total_payment - loan_amount
-        
-        st.markdown(f"""
-        <div class="sub-section">
-            <div style="font-size:0.75rem; color:#8a99ad;">ESTIMATED MONTHLY INSTALLMENT</div>
-            <div class="glow-val" style="font-size:1.8rem;">₹{int(emi):,}</div>
-            <div style="font-size:0.8rem; margin-top:0.4rem; line-height:1.4;">
-                Down Payment: <strong>₹{int(downpayment):,}</strong><br>
-                Principal Loan: <strong>₹{int(loan_amount):,}</strong><br>
-                Accumulated Interest: <strong>₹{int(total_interest):,}</strong>
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
-        st.markdown('</div>', unsafe_allow_html=True)
-        
-    with col_finance_charts:
-        st.markdown('<div class="glass-card">', unsafe_allow_html=True)
-        st.markdown("<h4 style='color:#d4af37; margin-top:0;'>📊 Amortization Schedule & Capital Composition</h4>", unsafe_allow_html=True)
-        
-        years_arr = list(range(1, loan_years + 1))
-        remaining_balance = []
-        cumulative_principal = []
-        cumulative_interest = []
-        
-        balance = loan_amount
-        cum_p = 0.0
-        cum_i = 0.0
-        
-        for y_idx in range(1, loan_years + 1):
-            year_interest = 0.0
-            year_principal = 0.0
-            for _ in range(12):
-                i_pay = balance * r
-                p_pay = emi - i_pay
-                balance -= p_pay
-                year_interest += i_pay
-                year_principal += p_pay
-                
-            cum_p += year_principal
-            cum_i += year_interest
-            
-            remaining_balance.append(max(0.0, balance))
-            cumulative_principal.append(cum_p)
-            cumulative_interest.append(cum_i)
-            
-        fig_amort = go.Figure()
-        fig_amort.add_trace(go.Scatter(
-            x=years_arr, y=cumulative_interest, fill='tozeroy', mode='lines',
-            line=dict(color='#d4af37', width=2), name="Cumulative Interest Paid"
-        ))
-        fig_amort.add_trace(go.Scatter(
-            x=years_arr, y=cumulative_principal, fill='tonexty', mode='lines',
-            line=dict(color='#00f5d4', width=2), name="Cumulative Principal Repaid"
-        ))
-        fig_amort.add_trace(go.Scatter(
-            x=years_arr, y=remaining_balance, mode='lines',
-            line=dict(color='#ef4444', width=2, dash='dot'), name="Outstanding Loan Balance"
-        ))
-        
-        fig_amort.update_layout(
-            paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-            font=dict(color="#cbd5e1", size=10), height=240, margin=dict(t=10, b=10),
-            yaxis=dict(title="Amount (₹)", gridcolor="rgba(255,255,255,0.05)"),
-            xaxis=dict(title="Year", gridcolor="rgba(255,255,255,0.05)"),
-            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
-        )
-        st.plotly_chart(fig_amort, use_container_width=True)
-        st.markdown('</div>', unsafe_allow_html=True)
-
-    # 📊 ROI SENSITIVITY HEATMAP MATRIX
-    st.markdown('<div class="glass-card">', unsafe_allow_html=True)
-    st.markdown("<h3 style='color:#d4af37; margin-top:0;'>📊 Investment ROI Sensitivity Heatmap</h3>", unsafe_allow_html=True)
-    st.write("Examine the projected 5-Year Return on Equity (ROE) based on varying Annual Appreciation rates (X-axis) and Loan Interest rates (Y-axis).")
-    
-    appr_rates = [4, 6, 8, 10, 12]
-    int_rates = [6, 7, 8, 9, 10, 11, 12]
-    
-    heatmap_z = []
-    for ir in int_rates:
-        row = []
-        monthly_ir = (ir / 100.0) / 12
-        bal = loan_amount
-        tot_i_5yr = 0
-        for _ in range(60):
-            interest_p = bal * monthly_ir
-            principal_p = emi - interest_p
-            bal = max(0.0, bal - principal_p)
-            tot_i_5yr += interest_p
-            
-        for ar in appr_rates:
-            fut_v_5yr = sim_val * ((1 + ar/100) ** 5)
-            net_gain = fut_v_5yr - sim_val
-            rent_saved_5yr = sim_val * 0.042 * 5
-            
-            net_roi_delta = net_gain + rent_saved_5yr - tot_i_5yr
-            roe_percent = (net_roi_delta / downpayment) * 100
-            row.append(round(roe_percent, 1))
-        heatmap_z.append(row)
-        
-    fig_hm = px.imshow(
-        heatmap_z,
-        labels=dict(x="Annual Capital Appreciation (%)", y="Mortgage Interest Rate (%)", color="5-Year ROE (%)"),
-        x=[f"{x}%" for x in appr_rates],
-        y=[f"{y}%" for y in int_rates],
-        color_continuous_scale="Cividis",
-        text_auto=True
-    )
-    fig_hm.update_layout(
-        paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-        font=dict(color="#cbd5e1", size=10), height=300, margin=dict(t=10, b=10, l=10, r=10)
-    )
-    st.plotly_chart(fig_hm, use_container_width=True)
-    st.markdown('</div>', unsafe_allow_html=True)
-        
-    st.markdown('<div class="glass-card">', unsafe_allow_html=True)
-    st.markdown("<h3 style='color:#d4af37; margin-top:0;'>🏡 Yield Analytics & Capital Projections</h3>", unsafe_allow_html=True)
-    
-    col_y1, col_y2, col_y3 = st.columns(3)
-    
-    with col_y1:
-        rent_yield = 4.2
-        annual_rent = sim_val * (rent_yield / 100)
-        st.markdown(f"""
-        <div class="sub-section">
-            <div style="font-size:0.75rem; color:#8a99ad;">ESTIMATED ANNUAL RENT</div>
-            <strong style="font-size:1.4rem; color:#d4af37;">₹{int(annual_rent):,}</strong>
-            <div style="font-size:0.8rem; margin-top:0.4rem;">Gross Yield Score: <strong>{rent_yield}%</strong></div>
-        </div>
-        """, unsafe_allow_html=True)
-        
-    with col_y2:
-        appreciation_rate = 7.5
-        future_val = sim_val * ((1 + appreciation_rate/100) ** 5)
-        gain = future_val - sim_val
-        st.markdown(f"""
-        <div class="sub-section" style="border-left-color: #00f5d4;">
-            <div style="font-size:0.75rem; color:#8a99ad;">5-YEAR CAPITAL GAIN</div>
-            <strong style="font-size:1.4rem; color:#00f5d4;">+₹{int(gain):,}</strong>
-            <div style="font-size:0.8rem; margin-top:0.4rem;">Appreciation projection: <strong>{appreciation_rate}% CAGR</strong></div>
-        </div>
-        """, unsafe_allow_html=True)
-        
-    with col_y3:
-        interest_paid_5yr = cumulative_interest[4] if loan_years >= 5 else cumulative_interest[-1]
-        rent_saved = annual_rent * 5 * 1.05
-        net_wealth_delta = gain + rent_saved - interest_paid_5yr
-        
-        st.markdown(f"""
-        <div class="sub-section" style="border-left-color: #00f5d4;">
-            <div style="font-size:0.75rem; color:#8a99ad;">NET WEALTH GENERATION</div>
-            <strong style="font-size:1.4rem; color:#00f5d4;">₹{int(net_wealth_delta):,}</strong>
-            <div style="font-size:0.8rem; margin-top:0.4rem;">Equity multiplier: <strong>{(net_wealth_delta/sim_val):.2f}x</strong></div>
-        </div>
-        """, unsafe_allow_html=True)
-    st.markdown('</div>', unsafe_allow_html=True)
-
-# ═════════════════════════════════════════════════════════════════════════════
-# TAB 5: VALUATION ARCHIVES
-# ═════════════════════════════════════════════════════════════════════════════
-elif st.session_state.current_view == "📜 Valuation Archives":
-    st.markdown("<h2 style='color:#d4af37;'>📜 Valuation Audit History</h2>", unsafe_allow_html=True)
-    st.write("Browse historical AI appraisals logged during this server instance.")
-    
-    history_logs = st.session_state.valuation_history
-    
-    if not history_logs:
-        st.info("No property configurations appraised in current session history.")
-    else:
-        df_logs = pd.DataFrame(history_logs)
-        
-        st.dataframe(
-            df_logs.sort_values(by="timestamp", ascending=False),
-            use_container_width=True,
-            column_config={
-                "timestamp": st.column_config.TextColumn("Appraisal Timestamp"),
-                "location": st.column_config.TextColumn("Neighborhood Location"),
-                "property_type": st.column_config.TextColumn("Class Type"),
-                "area": st.column_config.NumberColumn("Carpet Area (sqft)", format="%d"),
-                "bedrooms": st.column_config.NumberColumn("BHK Bedrooms", format="%d"),
-                "bathrooms": st.column_config.NumberColumn("Baths", format="%d"),
-                "valuation": st.column_config.NumberColumn("Estimated Appraisal Value (₹)", format="₹%d")
-            }
-        )
-        
-        avg_price = int(df_logs["valuation"].mean())
-        tot_appraised = int(df_logs["valuation"].sum())
-        total_runs = len(df_logs)
-        
-        st.markdown("<br>", unsafe_allow_html=True)
+        st.plotly_chart(fig_heat, use_container_width=True)
+        # Best/Worst scenario summary
+        flat_roe = [v for row in roe_matrix for v in row]
+        best_roe = max(flat_roe)
+        worst_roe = min(flat_roe)
         col_s1, col_s2, col_s3 = st.columns(3)
         with col_s1:
             st.markdown(f"""
-            <div class="glass-card" style="text-align:center; padding:1.2rem;">
-                <div style="font-size:0.75rem; color:#8a99ad;">TOTAL LOG RUNS</div>
-                <strong style="font-size:1.6rem; color:#d4af37;">{total_runs} Records</strong>
-            </div>
-            """, unsafe_allow_html=True)
+            <div class="glass-card" style="text-align:center; padding:1rem; border-color:rgba(6,214,160,0.4);">
+              <div style='font-size:0.75rem; color:#8a99ad;'>BEST CASE 5-Yr ROE</div>
+              <div style='font-size:1.8rem; font-weight:800; color:#06d6a0;'>{best_roe:.0f}%</div>
+              <div style='font-size:0.75rem; color:#8a99ad;'>Low rates + High appreciation</div>
+            </div>""", unsafe_allow_html=True)
         with col_s2:
+            mid_roe = flat_roe[len(flat_roe)//2]
             st.markdown(f"""
-            <div class="glass-card" style="text-align:center; padding:1.2rem;">
-                <div style="font-size:0.75rem; color:#8a99ad;">AVERAGE VALUE APPRAISED</div>
-                <strong style="font-size:1.6rem; color:#d4af37;">₹{avg_price:,}</strong>
-            </div>
-            """, unsafe_allow_html=True)
+            <div class="glass-card" style="text-align:center; padding:1rem; border-color:rgba(212,175,55,0.4);">
+              <div style='font-size:0.75rem; color:#8a99ad;'>MID SCENARIO ROE</div>
+              <div style='font-size:1.8rem; font-weight:800; color:#d4af37;'>{mid_roe:.0f}%</div>
+              <div style='font-size:0.75rem; color:#8a99ad;'>Baseline conditions</div>
+            </div>""", unsafe_allow_html=True)
         with col_s3:
             st.markdown(f"""
-            <div class="glass-card" style="text-align:center; padding:1.2rem;">
-                <div style="font-size:0.75rem; color:#8a99ad;">CUMULATIVE APPRAISED PORTFOLIO</div>
-                <strong style="font-size:1.6rem; color:#00f5d4;">₹{tot_appraised:,}</strong>
+            <div class="glass-card" style="text-align:center; padding:1rem; border-color:rgba(239,35,60,0.4);">
+              <div style='font-size:0.75rem; color:#8a99ad;'>WORST CASE 5-Yr ROE</div>
+              <div style='font-size:1.8rem; font-weight:800; color:#ef233c;'>{worst_roe:.0f}%</div>
+              <div style='font-size:0.75rem; color:#8a99ad;'>High rates + Low appreciation</div>
+            </div>""", unsafe_allow_html=True)
+# ═════════════════════════════════════════════════════════════════════════════
+# TAB 9: PRINTABLE VALUATION CERTIFICATE
+# ═════════════════════════════════════════════════════════════════════════════
+elif st.session_state.current_view == "🏆 Certificate":
+    st.markdown("<h2 style='color:#d4af37;'>🏆 Printable Valuation Certificate</h2>", unsafe_allow_html=True)
+    st.markdown("<p style='color:#8a99ad;'>Generate an official HTML appraisal certificate for any property configuration and download it instantly.</p>", unsafe_allow_html=True)
+    col_cert1, col_cert2 = st.columns([1.2, 1.8])
+    with col_cert1:
+        st.markdown('<div class="glass-card">', unsafe_allow_html=True)
+        st.markdown("**📋 Certificate Details**")
+        cert_loc   = st.selectbox("Location", ["South Mumbai (Malabar Hill)", "Gurugram Golf Course Road",
+            "South Delhi (Vasant Vihar)", "Bangalore Indiranagar", "Hyderabad Jubilee Hills",
+            "Pune Koregaon Park", "Standard Suburban Sector"], key="cert_loc")
+        cert_ptype = st.selectbox("Property Type", ["Ultra-Luxury Penthouse", "Modern Glass Villa",
+            "Contemporary Apartment", "Classical Grand Mansion"], key="cert_ptype")
+        cert_area  = st.number_input("Carpet Area (sqft)", 400, 10000, 2200, 100, key="cert_area")
+        cert_beds  = st.selectbox("Bedrooms (BHK)", [1,2,3,4,5,6], index=2, key="cert_beds")
+        cert_baths = st.selectbox("Bathrooms", [1,2,3,4,5], index=2, key="cert_baths")
+        LPI = {"South Mumbai (Malabar Hill)": 3.5, "Gurugram Golf Course Road": 2.2,
+               "South Delhi (Vasant Vihar)": 2.8, "Bangalore Indiranagar": 1.8,
+               "Hyderabad Jubilee Hills": 1.9, "Pune Koregaon Park": 1.5, "Standard Suburban Sector": 1.0}
+        PTM = {"Ultra-Luxury Penthouse": 1.4, "Modern Glass Villa": 1.6,
+               "Contemporary Apartment": 1.0, "Classical Grand Mansion": 1.8}
+        base_v = model.predict(pd.DataFrame({"area": [cert_area], "bedrooms": [cert_beds], "bathrooms": [cert_baths]}))[0]
+        cert_val = int(base_v * LPI.get(cert_loc, 1.0) * PTM.get(cert_ptype, 1.0))
+        st.markdown(f"""
+        <div style='margin-top:1rem; padding:1rem; background:rgba(212,175,55,0.08);
+             border:1px solid rgba(212,175,55,0.3); border-radius:12px; text-align:center;'>
+          <div style='font-size:0.75rem; color:#8a99ad;'>ESTIMATED VALUATION</div>
+          <div style='font-size:2rem; font-weight:800; color:#d4af37;'>₹{cert_val:,}</div>
+        </div>
+        """, unsafe_allow_html=True)
+        cert_html = generate_html_certificate(cert_loc, cert_ptype, cert_area, cert_beds, cert_baths, cert_val)
+        st.download_button(
+            "⬇️ Download Appraisal Certificate (HTML)",
+            cert_html.encode("utf-8"),
+            file_name=f"EstateX_Certificate_{cert_loc[:10].replace(' ','_')}.html",
+            mime="text/html",
+            use_container_width=True
+        )
+        st.markdown('</div>', unsafe_allow_html=True)
+    with col_cert2:
+        # Live preview using certificate HTML in an iframe-style render
+        today = datetime.date.today().strftime("%B %d, %Y")
+        cert_id = f"EX-{random.randint(100000, 999999)}"
+        st.markdown(f"""
+        <div style="background:#0c0e14; border:3px solid #d4af37; border-radius:16px; padding:2.5rem; font-family:'Times New Roman', serif; text-align:center;">
+          <div style="border:1px solid rgba(212,175,55,0.4); padding:2rem; border-radius:10px;">
+            <div style="float:right; font-size:11px; color:#8a99ad;">CERTIFICATE NO: {cert_id}</div>
+            <div style="font-size:1.8rem; font-weight:800; color:#d4af37; letter-spacing:2px; margin-bottom:0.3rem;">⚜️ ESTATEX APPRAISAL CERTIFICATE ⚜️</div>
+            <div style="font-size:0.75rem; text-transform:uppercase; color:#8a99ad; letter-spacing:4px; margin-bottom:2rem;">Official Valuation Declaration</div>
+            <div style="font-size:0.9rem; line-height:1.8; color:#cbd5e0; margin-bottom:1.5rem;">
+              This document formally certifies the machine-learning derived market appraisal for the premium residential asset configured below.
+              Valuation has been computed using multi-variable regression planes adjusted for local state surcharges and location premium indexes.
             </div>
-            """, unsafe_allow_html=True)
-            
-        col_c1, col_c2 = st.columns(2)
-        with col_c1:
-            csv_data = df_logs.to_csv(index=False).encode("utf-8")
-            st.download_button("🔱 Export Archives (CSV)", csv_data, "valuation_archives.csv", "text/csv", use_container_width=True)
-        with col_c2:
-            if st.button("🚫 Clear History Logs", use_container_width=True):
-                st.session_state.valuation_history = []
-                save_records([])
-                st.rerun()
-
+            <div style="font-size:2.5rem; color:#d4af37; font-weight:bold; text-shadow:0 0 15px rgba(212,175,55,0.4); margin:1.5rem 0;">₹{cert_val:,}</div>
+            <table style="width:80%; margin:0 auto 1.5rem auto; border-collapse:collapse; text-align:left;">
+              <tr><td style="padding:8px; color:#d4af37; font-weight:bold;">Location</td><td style="padding:8px; color:#e0f0ff;">{cert_loc}</td></tr>
+              <tr><td style="padding:8px; color:#d4af37; font-weight:bold;">Classification</td><td style="padding:8px; color:#e0f0ff;">{cert_ptype}</td></tr>
+              <tr><td style="padding:8px; color:#d4af37; font-weight:bold;">Carpet Area</td><td style="padding:8px; color:#e0f0ff;">{cert_area} Sq Ft</td></tr>
+              <tr><td style="padding:8px; color:#d4af37; font-weight:bold;">BHK</td><td style="padding:8px; color:#e0f0ff;">{cert_beds} Bedrooms</td></tr>
+              <tr><td style="padding:8px; color:#d4af37; font-weight:bold;">Bathrooms</td><td style="padding:8px; color:#e0f0ff;">{cert_baths} Bathrooms</td></tr>
+              <tr><td style="padding:8px; color:#d4af37; font-weight:bold;">Appraisal Date</td><td style="padding:8px; color:#e0f0ff;">{today}</td></tr>
+            </table>
+            <div style="display:flex; justify-content:space-around; margin-top:2rem; padding-top:1.5rem; border-top:1px solid rgba(212,175,55,0.3);">
+              <div style="text-align:center;">
+                <div style="width:160px; border-top:1px solid rgba(212,175,55,0.5); padding-top:8px; color:#8a99ad; font-size:12px;">EstateX ML Engine</div>
+                <div style="color:#8a99ad; font-size:11px;">Authorized Digital Seal</div>
+              </div>
+              <div style="text-align:center;">
+                <div style="width:160px; border-top:1px solid rgba(212,175,55,0.5); padding-top:8px; color:#8a99ad; font-size:12px;">Rajan Sethi</div>
+                <div style="color:#8a99ad; font-size:11px;">Senior Registrar Audit</div>
+              </div>
+            </div>
+          </div>
+        </div>
+        """, unsafe_allow_html=True)
 st.markdown("<br><hr style='border-top: 1px solid rgba(212, 175, 55, 0.15);'>", unsafe_allow_html=True)
 st.markdown("<div style='text-align:center; font-size:0.80rem; color:#8a99ad;'>⚜️ EstateX Premium Real Estate Analytics System | Custom Linear Regression Model | V2.5 Luxury Edition</div>", unsafe_allow_html=True)
