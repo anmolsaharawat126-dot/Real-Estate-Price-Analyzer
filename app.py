@@ -383,8 +383,8 @@ def property_card_html(p: dict) -> str:
     verified = "✅ Verified Listing" if p.get("verified") else ""
     premium = "💎 Premium" if p.get("premium") else ""
     lt = p.get("listing_type", "buy").upper()
-    bhk = f"{p.get('bhk','') }BHK · " if p.get("bhk") else ""
-    sqft = f"{p.get('size_sqft','') } sqft" if p.get("size_sqft") else ""
+    bhk = f"{p.get('bhk','')}BHK · " if p.get("bhk") else ""
+    sqft = f"{p.get('size_sqft','')} sqft" if p.get("size_sqft") else ""
     
     # Calculate price tag dynamically
     est = estimate_price(p['city'], p['area'], p['size_sqft'], p.get('bhk', 2), p.get('type','apartment'))
@@ -393,43 +393,41 @@ def property_card_html(p: dict) -> str:
     user_badge = get_user_badge_html(p.get("posted_by",""))
     resp_badge = get_response_badge_html(p.get("posted_by",""))
 
-    img_placeholder = f"""
-    <div style="
-        background: linear-gradient(135deg, #181c33, #090b14);
-        border-radius: 12px; height: 160px;
-        display: flex; align-items: center; justify-content: center;
-        margin-bottom: 12px; border: 1px solid rgba(255,255,255,0.05);
-        position: relative;
-    ">
-        <span style="font-size: 48px">🏠</span>
-        <span style="position: absolute; top: 10px; right: 10px; background: rgba(0,0,0,0.65); padding: 4px 8px; border-radius: 6px; font-size: 10px; color: #d4af37; font-weight: 700;">
-            Match Score 98%
-        </span>
-    </div>
-    """
+    # Flat string with NO leading whitespace on any line
+    img_placeholder = (
+        '<div style="background:linear-gradient(135deg,#181c33,#090b14);'
+        'border-radius:12px;height:160px;display:flex;align-items:center;'
+        'justify-content:center;margin-bottom:12px;border:1px solid rgba(255,255,255,0.05);'
+        'position:relative;">'
+        '<span style="font-size:48px">🏠</span>'
+        '<span style="position:absolute;top:10px;right:10px;background:rgba(0,0,0,0.65);'
+        'padding:4px 8px;border-radius:6px;font-size:10px;color:#d4af37;font-weight:700;">'
+        'Match Score 98%</span></div>'
+    )
 
-    return f"""
-<div class="prop-card glass-panel fade-in">
-    {img_placeholder}
-    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">
-        <span style="font-size:16px;font-weight:700;color:#fff;flex:1;margin-right:8px">{p.get('title','')[:50]}</span>
-        <span class="price-badge">{price_str}</span>
-    </div>
-    <div style="font-size:13px;color:#aaa;margin-bottom:10px">
-        📍 {p.get('area','')}, {p.get('city','')} &nbsp;·&nbsp;
-        {bhk}{sqft}
-    </div>
-    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px">
-        <span class="badge badge-{'rent' if lt=='RENT' else 'buy'}">{lt}</span>
-        <span class="badge {deal_cls}">{deal_lbl}</span>
-        {f'<span class="badge badge-verified">{verified}</span>' if verified else ''}
-        <span class="badge" style="background:rgba(255,255,255,0.05);color:#ccc">{p.get('furnishing','').replace("-"," ").title()}</span>
-        {f'<span class="badge" style="background:rgba(212,175,55,0.2);color:#d4af37">{premium}</span>' if premium else ''}
-        {user_badge}
-        {resp_badge}
-    </div>
-    <div style="font-size:13px;color:#cbd5e1;line-height:1.5">{str(p.get('description',''))[:120]}...</div>
-</div>"""
+    card_html = (
+        f'<div class="prop-card glass-panel fade-in">'
+        f'{img_placeholder}'
+        f'<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">'
+        f'<span style="font-size:16px;font-weight:700;color:#fff;flex:1;margin-right:8px">{p.get("title", "")[:50]}</span>'
+        f'<span class="price-badge">{price_str}</span>'
+        f'</div>'
+        f'<div style="font-size:13px;color:#aaa;margin-bottom:10px">'
+        f'📍 {p.get("area", "")}, {p.get("city", "")} &nbsp;·&nbsp; {bhk}{sqft}'
+        f'</div>'
+        f'<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px">'
+        f'<span class="badge badge-{"rent" if lt=="RENT" else "buy"}">{lt}</span>'
+        f'<span class="badge {deal_cls}">{deal_lbl}</span>'
+        f'{f"<span class=\\\"badge badge-verified\\\">{verified}</span>" if verified else ""}'
+        f'<span class="badge" style="background:rgba(255,255,255,0.05);color:#ccc">{p.get("furnishing", "").replace("-", " ").title()}</span>'
+        f'{f"<span class=\\\"badge\\\" style=\\\"background:rgba(212,175,55,0.2);color:#d4af37\\\">{premium}</span>" if premium else ""}'
+        f'{user_badge}'
+        f'{resp_badge}'
+        f'</div>'
+        f'<div style="font-size:13px;color:#cbd5e1;line-height:1.5">{str(p.get("description", ""))[:120]}...</div>'
+        f'</div>'
+    )
+    return card_html
 
 def geocode(address_str):
     if not GEOPY_OK:
