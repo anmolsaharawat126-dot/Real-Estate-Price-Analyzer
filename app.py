@@ -1502,5 +1502,790 @@ def render_locality():
                 mode="lines+markers", 
                 line=dict(color="#d4af37", width=3)
             ))
-            fig.update_layout(paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", font_color="#fff")
+            fig.update_layout(paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", font_color="#fff")# ─────────────────────────────────────────────────────────────
+# PAGE: POST PROPERTY OR REQUIREMENT
+# ─────────────────────────────────────────────────────────────
+def render_post_property():
+    st.markdown("### 📤 Upload Center")
+    
+    post_tab, req_tab = st.tabs(["Post Property", "Post Buyer Requirement"])
+    
+    # Sub-tab 1: Post Property
+    with post_tab:
+        if not is_logged_in():
+            st.warning("🔐 Please login from the sidebar first to post properties.")
+        else:
+            user = st.session_state["user"]
+            with st.form("post_prop_form"):
+                title = st.text_input("Title *", placeholder="e.g. Elegant 3BHK in Sector 137, Noida")
+                col_a, col_b = st.columns(2)
+                with col_a:
+                    p_type = st.selectbox("Type", ["apartment", "villa", "plot", "office", "shop"])
+                    city = st.text_input("City *", placeholder="e.g. Noida")
+                    state = st.text_input("State", placeholder="e.g. Uttar Pradesh")
+                    hide_phone = st.checkbox("Hide my phone number from public layout")
+                with col_b:
+                    listing = st.selectbox("Listed for", ["buy", "rent"])
+                    area = st.text_input("Area *", placeholder="e.g. Sector 137")
+                    price = st.number_input("Price (₹) *", min_value=1000)
+                    
+                sqft = st.number_input("Sqft Size *", min_value=100)
+                bhk = st.selectbox("BHK", [1, 2, 3, 4, 5])
+                desc = st.text_area("Description")
+                
+                st.markdown("##### 📄 Document Verification & Floor Plans")
+                rera_no_input = st.text_input("RERA Registration Number", placeholder="e.g. UPRERAPRJ12345")
+                uploaded_docs = st.file_uploader("Upload Legal Property Documents (Title Deed, Sale Deed)", accept_multiple_files=True)
+                uploaded_floor = st.file_uploader("Upload Floor Plan Layout Image", type=["png", "jpg", "jpeg"])
+                uploaded_photos = st.file_uploader("Upload Property Photos", type=["png", "jpg", "jpeg"], accept_multiple_files=True)
+                
+                st.markdown("**Choose Listing Plan**")
+                plan = st.radio("Upload Plan", ["Free (Standard)", "Featured Plan (₹499/mo) - 💎 Premium badge"])
+                
+                if st.form_submit_button("🚀 Post Property Listing"):
+                    if not title or not city or not area or price <= 0:
+                        st.error("Please fill all mandatory fields.")
+                    else:
+                        is_dup, dup_id = detect_duplicates(title, area, sqft)
+                        if is_dup:
+                            st.warning(f"⚠️ AI detected this might be a duplicate listing of property ID {dup_id}!")
+                        else:
+                            images_saved = []
+                            if uploaded_photos:
+                                for idx, f in enumerate(uploaded_photos):
+                                    fn = f"p_{int(datetime.now().timestamp())}_{idx}.jpg"
+                                    fpath = os.path.join(UPLOADS_DIR, fn)
+                                    try:
+                                        with open(fpath, "wb") as out_f:
+                                            out_f.write(f.getbuffer())
+                                        images_saved.append(f"assets/uploads/{fn}")
+                                    except Exception:
+                                        pass
+                            
+                            loc = geocode(f"{area}, {city}, {state}, India")
+                            new_p = {
+                                "id": f"prop_{int(datetime.now().timestamp())}",
+                                "title": title, "type": p_type, "listing_type": listing,
+                                "city": city, "area": area, "state": state,
+                                "pincode": "", "price": price, "price_per_sqft": round(price/sqft), "size_sqft": sqft,
+                                "bhk": bhk, "bedrooms": bhk, "bathrooms": bhk - 1 if bhk > 1 else 1, "parking": 1,
+                                "floor": 1, "total_floors": 4, "furnishing": "unfurnished", "status": "available",
+                                "verified": bool(uploaded_docs), "premium": "Featured" in plan, "lat": loc["lat"], "lng": loc["lng"],
+                                "description": desc, "amenities": ["parking", "security"], "images": images_saved,
+                                "owner_name": user["name"], "owner_phone": user["phone"], "owner_whatsapp": user["phone"],
+                                "owner_email": user["email"], "posted_by": user["id"],
+                                "posted_date": datetime.now().strftime("%Y-%m-%d"), "views": 0, "leads": 0,
+                                "possession": "ready", "age_years": 0, "facing": "East", "approved": False,
+                                "hide_contact": hide_phone, "aqi": 100, "ev_charging": False, "wheelchair_access": True,
+                                "price_history": [price],
+                                "rera_registered": bool(rera_no_input),
+                                "rera_no": rera_no_input,
+                                "legal_approved": bool(uploaded_docs),
+                                "has_floor_plan": bool(uploaded_floor)
+                            }
+                            save_property(new_p)
+                            st.success("Submitted! Property is pending approval from Admin.")
+                            st.balloons()
+                            
+    # Sub-tab 2: Post Buyer Requirement
+    with req_tab:
+        if not is_logged_in():
+            st.warning("🔐 Please login from the sidebar first to post requirements.")
+        else:
+            user = st.session_state["user"]
+            with st.form("buyer_req_form"):
+                req_city = st.text_input("Target City *", placeholder="Noida")
+                req_bhk = st.selectbox("BHK Required", [1, 2, 3, 4, 5])
+                req_budget = st.number_input("Max Budget (₹) *", min_value=100000)
+                
+                if st.form_submit_button("📢 Broadcast Requirement"):
+                    reqs = _load_data(REQ_FILE)
+                    reqs.append({
+                        "id": f"req_{int(datetime.now().timestamp())}",
+                        "buyer_id": user["id"],
+                        "buyer_name": user["name"],
+                        "city": req_city,
+                        "bhk": req_bhk,
+                        "budget": req_budget,
+                        "timestamp": datetime.now().strftime("%Y-%m-%d")
+                    })
+                    _save_data(REQ_FILE, reqs)
+                    st.success("Requirement broadcasted! AI will match this with property listings and notify matching owners.")
+
+# ─────────────────────────────────────────────────────────────
+# PAGE: DASHBOARD & CRM
+# ─────────────────────────────────────────────────────────────
+def render_dashboard():
+    st.markdown("### 📊 Dashboard & CRM Manager")
+    if not is_logged_in():
+        st.warning("🔐 Please login from the sidebar first.")
+        st.stop()
+        
+    user = st.session_state["user"]
+    my_props = get_properties_by_user(user["id"])
+    
+    t_list, t_leads, t_hub, t_crm, t_chats = st.tabs(["Listings Managed", "Notifications & Leads", "My Buyer Hub", "Agent CRM Portal", "In-App Chats"])
+    
+    # Tab 1: Listings Managed
+    with t_list:
+        if not my_props:
+            st.info("You haven't listed any properties yet.")
+        else:
+            for pr in my_props:
+                st.markdown(f"""
+                <div class="info-box">
+                    <h5>🏠 {pr['title']}</h5>
+                    <p>Price: {format_price(pr['price'])} | City: {pr['city']} | Status: **{pr['status'].upper()}**</p>
+                    <p>Views: 👁 {pr.get('views',0)} | Leads: 📩 {pr.get('leads',0)} | Approved: {'✅ Yes' if pr['approved'] else '⏳ Pending Review'}</p>
+                </div>
+                """, unsafe_allow_html=True)
+                col_sd, col_dl = st.columns(2)
+                with col_sd:
+                    if pr["status"] == "available":
+                        if st.button("Mark as Sold / Rented", key=f"sold_{pr['id']}"):
+                            update_property(pr["id"], {"status": "sold"})
+                            st.success("Status updated!")
+                            st.rerun()
+                with col_dl:
+                    if st.button("Delete Listing", key=f"del_{pr['id']}"):
+                        delete_property(pr["id"])
+                        st.warning("Property deleted.")
+                        st.rerun()
+                        
+    # Tab 2: Notifications & Leads
+    with t_leads:
+        st.markdown("#### Call Back Requests")
+        calls = _load_data(CALLS_FILE)
+        my_calls = [c for c in calls if get_property_by_id(c["prop_id"]) and get_property_by_id(c["prop_id"])["posted_by"] == user["id"]]
+        
+        if not my_calls:
+            st.info("No callback requests at this moment.")
+        else:
+            for c in my_calls:
+                st.markdown(f"""
+                <div class="info-box">
+                    <p>Buyer Name: **{c['buyer_name']}** | Phone: **{c['buyer_phone']}**</p>
+                    <p>Requested On: {c['timestamp']} | Status: **{c['status'].upper()}**</p>
+                </div>
+                """, unsafe_allow_html=True)
+                if c["status"] == "pending":
+                    if st.button("Approve Call Request", key=f"ap_call_{c['id']}"):
+                        c["status"] = "approved"
+                        _save_data(CALLS_FILE, calls)
+                        st.success("Approved call request!")
+                        st.rerun()
+                        
+        st.markdown("#### 📅 Scheduled Site Visits")
+        visits = _load_data(VISITS_FILE)
+        my_visits = [v for v in visits if v.get("posted_by") == user["id"]]
+        if not my_visits:
+            st.info("No scheduled site visits.")
+        else:
+            for v in my_visits:
+                st.markdown(f"""
+                <div class="info-box">
+                    <p>Buyer: **{v['buyer_name']}** ({v['buyer_phone']})</p>
+                    <p>Listing: **{v['prop_title']}**</p>
+                    <p>Type: **{v['tour_type']}** | Date: **{v['date']}** | Time: **{v['time']}**</p>
+                    <p>Status: **{v['status'].upper()}**</p>
+                </div>
+                """, unsafe_allow_html=True)
+                if v["status"] == "pending":
+                    col_app, col_rej = st.columns(2)
+                    with col_app:
+                        if st.button("Approve Visit", key=f"app_vis_{v['id']}"):
+                            v["status"] = "approved"
+                            _save_data(VISITS_FILE, visits)
+                            st.success("Approved visit!")
+                            st.rerun()
+                    with col_rej:
+                        if st.button("Reject Visit", key=f"rej_vis_{v['id']}"):
+                            v["status"] = "rejected"
+                            _save_data(VISITS_FILE, visits)
+                            st.warning("Rejected visit.")
+                            st.rerun()
+
+        st.markdown("#### AI Requirement Matches")
+        reqs = _load_data(REQ_FILE)
+        matched_reqs = []
+        for r in reqs:
+            for p in my_props:
+                if p["city"].lower() == r["city"].lower() and p["bhk"] == r["bhk"] and p["price"] <= r["budget"]:
+                    matched_reqs.append((r, p))
+                    
+        if not matched_reqs:
+            st.info("No active buyer requirements match your listings right now.")
+        else:
+            for r, p in matched_reqs:
+                st.markdown(f"""
+                <div class="info-box" style="border-color:#00c864">
+                    <h5>🔥 AI Match Found!</h5>
+                    <p>Buyer **{r['buyer_name']}** is looking for a **{r['bhk']} BHK** in **{r['city']}** with a budget of **{format_price(r['budget'])}**</p>
+                    <p>Matching Property: **{p['title']}**</p>
+                    <p>Contact Email: {r['buyer_id']} (Send proposal directly!)</p>
+                </div>
+                """, unsafe_allow_html=True)
+                if st.button(f"Message {r['buyer_name']}", key=f"match_chat_{r['id']}_{p['id']}"):
+                    chats = _load_data(CHATS_FILE)
+                    chats.append({
+                        "sender_id": user["id"],
+                        "sender_name": user["name"],
+                        "receiver_id": r["buyer_id"],
+                        "prop_id": p["id"],
+                        "prop_title": p["title"],
+                        "msg": f"Hi, I saw your requirement in {r['city']}. My property '{p['title']}' matches your search! Let me know if you would like to discuss.",
+                        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M")
+                    })
+                    _save_data(CHATS_FILE, chats)
+                    st.success(f"Notification message sent to {r['buyer_name']}! Check replies in Chats tab.")
+                
+    # Tab 3: My Buyer Hub
+    with t_hub:
+        st.markdown("#### 🛒 Buyer Activity & Workspace")
+        
+        visits = _load_data(VISITS_FILE)
+        calls = _load_data(CALLS_FILE)
+        reqs = _load_data(REQ_FILE)
+        
+        hub_opt = st.radio("Activity Category", ["Profile & KYC", "My Scheduled Tours", "My Call Requests", "My Requirements Broadcasted"], horizontal=True)
+        
+        if hub_opt == "Profile & KYC":
+            st.markdown("#### 🛡️ Profile KYC Verification")
+            if user.get("kyc_verified"):
+                st.success("✅ Your profile is fully KYC Verified. You have the 'Verified Listing Owner' or 'Trusted Agent' badge active!")
+            else:
+                st.markdown("<p style='color:#aaa'>Verify your profile with Aadhaar & PAN card to get the 👑 Verified Owner or 🎖️ Trusted Agent badge and increase leads.</p>", unsafe_allow_html=True)
+                
+                if "kyc_otp_sent" not in st.session_state:
+                    st.session_state["kyc_otp_sent"] = False
+                
+                with st.form("kyc_verif_form"):
+                    aadhaar_no = st.text_input("Aadhaar Number (12 digits)", placeholder="e.g. 123456789012")
+                    pan_no = st.text_input("PAN Card Number (10 characters)", placeholder="e.g. ABCDE1234F")
+                    kyc_phone = st.text_input("Phone Number linked with Aadhaar", value=user.get("phone",""))
+                    
+                    kyc_submit = st.form_submit_button("📩 Generate Aadhaar OTP")
+                    if kyc_submit:
+                        if len(aadhaar_no) != 12 or not aadhaar_no.isdigit():
+                            st.error("Aadhaar number must be exactly 12 digits.")
+                        elif len(pan_no) != 10:
+                            st.error("PAN number must be exactly 10 characters.")
+                        else:
+                            st.session_state["kyc_otp_sent"] = True
+                            st.session_state["kyc_aadhaar"] = aadhaar_no
+                            st.session_state["kyc_pan"] = pan_no
+                            st.success("OTP sent to Aadhaar-registered phone number! Enter mock OTP '1234' to verify.")
+                
+                if st.session_state.get("kyc_otp_sent"):
+                    with st.form("kyc_otp_form"):
+                        otp_entered = st.text_input("Enter 4-digit OTP", placeholder="Enter 1234")
+                        if st.form_submit_button("✅ Verify KYC & Grant Badge"):
+                            if otp_entered == "1234":
+                                users = _load_data(USERS_FILE)
+                                for u in users:
+                                    if u["id"] == user["id"]:
+                                        u["kyc_verified"] = True
+                                        u["aadhaar"] = st.session_state["kyc_aadhaar"]
+                                        u["pan"] = st.session_state["kyc_pan"]
+                                _save_data(USERS_FILE, users)
+                                st.session_state["user"]["kyc_verified"] = True
+                                st.session_state["kyc_otp_sent"] = False
+                                st.success("🎉 Congratulations! Your KYC has been verified. Verified badge is now active.")
+                                st.balloons()
+                                st.rerun()
+                            else:
+                                st.error("Incorrect OTP. Enter '1234' for verification.")
+                                
+        elif hub_opt == "My Scheduled Tours":
+            my_visits = [v for v in visits if v.get("buyer_id") == user["id"]]
+            if not my_visits:
+                st.info("You haven't scheduled any tours yet.")
+            else:
+                for v in my_visits:
+                    st.markdown(f"""
+                    <div class="info-box">
+                        <h5>🏠 {v['prop_title']}</h5>
+                        <p>Tour Type: **{v['tour_type']}** | Date: **{v['date']}** | Time: **{v['time']}**</p>
+                        <p>Status: **{v['status'].upper()}**</p>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    
+        elif hub_opt == "My Call Requests":
+            my_calls = [c for c in calls if c.get("buyer_id") == user["id"]]
+            if not my_calls:
+                st.info("No callback requests found.")
+            else:
+                for c in my_calls:
+                    p_info = get_property_by_id(c["prop_id"])
+                    p_title = p_info["title"] if p_info else "Property Details"
+                    status_lbl = "Approved (Check Owner Details Below)" if c["status"] == "approved" else "Pending Owner Approval"
+                    st.markdown(f"""
+                    <div class="info-box" style="border-left:4px solid {'#00c864' if c['status']=='approved' else '#ff9600'}">
+                        <h5>📞 {p_title}</h5>
+                        <p>Requested On: {c['timestamp']} | Status: **{status_lbl}**</p>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    if c["status"] == "approved" and p_info:
+                        st.markdown(f"""
+                        <div style="background:rgba(0,200,100,0.05);padding:10px;border-radius:6px;font-size:13px">
+                            👤 Owner: <b>{p_info['owner_name']}</b><br>
+                            📞 Phone: <b>+91 {p_info['owner_phone']}</b><br>
+                            ✉️ Email: {p_info['owner_email']}
+                        </div>
+                        """, unsafe_allow_html=True)
+                        
+        elif hub_opt == "My Requirements Broadcasted":
+            my_reqs = [r for r in reqs if r.get("buyer_id") == user["id"]]
+            if not my_reqs:
+                st.info("You haven't broadcasted any requirements.")
+            else:
+                for r in my_reqs:
+                    st.markdown(f"""
+                    <div class="info-box">
+                        <h5>📢 {r['bhk']} BHK in {r['city']}</h5>
+                        <p>Max Budget: {format_price(r['budget'])} | Posted: {r['timestamp']}</p>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    if st.button("Delete Requirement", key=f"del_req_{r['id']}"):
+                        reqs = [rq for rq in reqs if rq["id"] != r["id"]]
+                        _save_data(REQ_FILE, reqs)
+                        st.success("Deleted requirement!")
+                        st.rerun()
+
+    # Tab 4: Agent CRM
+    with t_crm:
+        if user.get("role") != "agent":
+            st.info("Agent CRM tools are only available to Agent profiles.")
+        else:
+            st.markdown("#### 🧑‍💼 Agent CRM Workspace")
+            
+            leads = _load_data(LEADS_FILE)
+            reminders = _load_data(REMINDERS_FILE)
+            
+            crm_opt = st.radio("CRM Sub-Section", ["Pipeline & Lead Management", "Follow-up Reminders", "Commission Reports"], horizontal=True)
+            
+            if crm_opt == "Pipeline & Lead Management":
+                st.markdown("##### 🏁 Deal Pipeline")
+                stages = ["New Leads", "Contacted", "Site Visit Scheduled", "Negotiation", "Deal Closed"]
+                
+                cols_pipeline = st.columns(5)
+                for i, stg in enumerate(stages):
+                    with cols_pipeline[i]:
+                        st.markdown(f"**{stg}**")
+                        stg_leads = [ld for ld in leads if ld.get("stage") == stg and ld.get("agent_id") == user["id"]]
+                        if not stg_leads:
+                            st.markdown("<p style='color:#555;font-size:12px'>No leads</p>", unsafe_allow_html=True)
+                        else:
+                            for ld in stg_leads:
+                                st.markdown(f"""
+                                <div style="background:rgba(255,255,255,0.06);border:1px solid rgba(212,175,55,0.2);padding:10px;border-radius:8px;margin-bottom:8px;font-size:12px">
+                                    <b>👤 {ld['name']}</b><br>
+                                    📞 {ld['phone']}<br>
+                                    🏠 {ld['property']}<br>
+                                    {f"💰 Comm: {format_price(ld['commission'])}" if ld.get('commission') else ""}
+                                </div>
+                                """, unsafe_allow_html=True)
+                
+                st.markdown("---")
+                
+                c_up1, c_up2 = st.columns(2)
+                with c_up1:
+                    st.markdown("##### ➕ Add New CRM Lead")
+                    with st.form("crm_add_lead"):
+                        ld_name = st.text_input("Lead Name")
+                        ld_phone = st.text_input("Phone")
+                        ld_prop = st.text_input("Property / Listing of Interest")
+                        ld_stg = st.selectbox("Stage", stages)
+                        ld_comm = st.number_input("Est. Commission (₹)", min_value=0, value=0)
+                        
+                        if st.form_submit_button("Add Lead"):
+                            if ld_name and ld_phone:
+                                new_ld = {
+                                    "id": f"lead_{int(datetime.now().timestamp())}",
+                                    "name": ld_name,
+                                    "phone": ld_phone,
+                                    "property": ld_prop,
+                                    "stage": ld_stg,
+                                    "commission": ld_comm if ld_stg == "Deal Closed" else 0,
+                                    "agent_id": user["id"]
+                                }
+                                leads.append(new_ld)
+                                _save_data(LEADS_FILE, leads)
+                                st.success("Lead added successfully!")
+                                st.rerun()
+                            else:
+                                st.error("Please fill Name and Phone.")
+                                
+                with c_up2:
+                    st.markdown("##### 🔄 Update Lead Stage")
+                    agent_leads = [ld for ld in leads if ld.get("agent_id") == user["id"]]
+                    if not agent_leads:
+                        st.info("No leads available to update.")
+                    else:
+                        with st.form("crm_update_stage"):
+                            ld_select = st.selectbox("Select Lead", [ld["name"] for ld in agent_leads])
+                            ld_new_stg = st.selectbox("New Stage", stages)
+                            ld_up_comm = st.number_input("Commission (if Closed) (₹)", min_value=0, value=25000)
+                            
+                            if st.form_submit_button("Update Stage"):
+                                for ld in leads:
+                                    if ld["name"] == ld_select and ld["agent_id"] == user["id"]:
+                                        ld["stage"] = ld_new_stg
+                                        if ld_new_stg == "Deal Closed":
+                                            ld["commission"] = ld_up_comm
+                                _save_data(LEADS_FILE, leads)
+                                st.success("Lead stage updated!")
+                                st.rerun()
+                                
+            elif crm_opt == "Follow-up Reminders":
+                st.markdown("##### 📅 Reminders & Follow-ups")
+                agent_rems = [rm for rm in reminders if rm.get("agent_id") == user["id"]]
+                
+                if not agent_rems:
+                    st.info("No follow-up reminders scheduled.")
+                else:
+                    for rm in agent_rems:
+                        status_str = "✅ Completed" if rm.get("done") else "⏳ Pending"
+                        st.markdown(f"""
+                        <div class="info-box" style="border-left:4px solid {'#00c864' if rm.get('done') else '#d4af37'}">
+                            <p>📝 {rm['text']}</p>
+                            <p style="font-size:12px;color:#aaa">Due Date: {rm['date']} | Status: {status_str}</p>
+                        </div>
+                        """, unsafe_allow_html=True)
+                        if not rm.get("done"):
+                            if st.button("Mark Complete", key=f"don_rem_{rm['id']}"):
+                                for r in reminders:
+                                    if r["id"] == rm["id"]:
+                                        r["done"] = True
+                                _save_data(REMINDERS_FILE, reminders)
+                                st.success("Reminder completed!")
+                                st.rerun()
+                                
+                st.markdown("---")
+                st.markdown("##### ⏰ Add Reminder")
+                with st.form("crm_add_reminder"):
+                    rem_text = st.text_input("Reminder Description")
+                    rem_date = st.date_input("Follow-up Date")
+                    if st.form_submit_button("Add Reminder"):
+                        if rem_text:
+                            reminders.append({
+                                "id": f"rem_{int(datetime.now().timestamp())}",
+                                "text": rem_text,
+                                "date": str(rem_date),
+                                "done": False,
+                                "agent_id": user["id"]
+                            })
+                            _save_data(REMINDERS_FILE, reminders)
+                            st.success("Reminder added!")
+                            st.rerun()
+                        else:
+                            st.error("Please fill description.")
+                            
+            elif crm_opt == "Commission Reports":
+                st.markdown("##### 📈 Deal Commission & Revenues")
+                closed_leads = [ld for ld in leads if ld.get("stage") == "Deal Closed" and ld.get("agent_id") == user["id"]]
+                total_earned = sum(ld.get("commission", 0) for ld in closed_leads)
+                
+                c_c1, c_c2 = st.columns(2)
+                with c_c1:
+                    st.metric("Total Commission Earned (Life Time)", format_price(total_earned), "+15% this quarter")
+                with c_c2:
+                    st.metric("Deals Closed (Total count)", f"{len(closed_leads)} Deals")
+                    
+                st.markdown("##### Closed Deals Directory")
+                if not closed_leads:
+                    st.info("No closed deals recorded yet.")
+                else:
+                    df_closed = pd.DataFrame(closed_leads)[["name", "phone", "property", "commission"]]
+                    st.dataframe(df_closed, use_container_width=True)
+
+    # Tab 5: Chats
+    with t_chats:
+        st.markdown("#### Direct Chat Box Inbox")
+        chats = _load_data(CHATS_FILE)
+        my_chats = [c for c in chats if c["receiver_id"] == user["id"]]
+        
+        if not my_chats:
+            st.info("No incoming messages in your inbox.")
+        else:
+            for ch in my_chats:
+                st.markdown(f"""
+                <div class="info-box">
+                    <p><b>{ch['sender_name']}</b> on listing <b>{ch['prop_title']}</b>:</p>
+                    <p>"{ch['msg']}"</p>
+                    <p style="font-size:11px;color:#555">{ch['timestamp']}</p>
+                </div>
+                """, unsafe_allow_html=True)
+                reply = st.text_input("Reply", key=f"rep_{ch['timestamp']}")
+                if st.button("Send Reply", key=f"rep_btn_{ch['timestamp']}"):
+                    if reply.strip():
+                        chats.append({
+                            "sender_id": user["id"],
+                            "sender_name": user["name"],
+                            "receiver_id": ch["sender_id"],
+                            "prop_id": ch["prop_id"],
+                            "prop_title": ch["prop_title"],
+                            "msg": reply,
+                            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M")
+                        })
+                        _save_data(CHATS_FILE, chats)
+                        st.success("Reply sent!")
+                        st.rerun()
+
+# ─────────────────────────────────────────────────────────────
+# PAGE: BUILDERS PROJECTS
+# ─────────────────────────────────────────────────────────────
+def render_projects():
+    st.markdown("### 🏢 Builder Trust Profiles & Projects")
+    
+    tab_builders, tab_projects = st.tabs(["Builders Profile Directory", "Newly Launched Projects & Timeline"])
+    
+    with tab_builders:
+        st.markdown("#### 🛡️ Verified Real Estate Developers")
+        builders_data = [
+            {
+                "name": "DLF Limited",
+                "year": "1946",
+                "delivered": "150+ Projects",
+                "on_time": "96%",
+                "rating": 5,
+                "description": "DLF has a 75-year track record of commercial and residential excellence. Renowned for luxury townships and high-rise premium condominiums.",
+                "completion_history": "Delivered major landmarks in Delhi NCR, Chennai, Hyderabad, and Chandigarh."
+            },
+            {
+                "name": "ATS Greens",
+                "year": "1998",
+                "delivered": "35+ Projects",
+                "on_time": "92%",
+                "rating": 4,
+                "description": "ATS Greens has become synonymous with quality residential construction, lush green landscaping, and timely delivery in the Noida-Greater Noida micro-markets.",
+                "completion_history": "ATS Pristine, ATS One Hamlet, and ATS Heavenly Foothills completed successfully."
+            },
+            {
+                "name": "Godrej Properties",
+                "year": "1990",
+                "delivered": "60+ Projects",
+                "on_time": "98%",
+                "rating": 5,
+                "description": "Bringing the Godrej Group philosophy of innovation, sustainability, and excellence to the real estate industry. Recognized for eco-friendly designs.",
+                "completion_history": "Prime developments in Mumbai, Bangalore, Pune, and Noida Sector 150."
+            }
+        ]
+        
+        for b in builders_data:
+            st.markdown(f"""
+            <div class="prop-card">
+                <div style="display:flex;justify-content:space-between;align-items:center">
+                    <h3 style="margin:0;color:#d4af37">{b['name']}</h3>
+                    <span style="font-size:16px">⭐ {b['rating']}.0 / 5.0</span>
+                </div>
+                <div style="font-size:12px;color:#aaa;margin-top:4px">Established: {b['year']} | Total Delivered: {b['delivered']}</div>
+                <p style="margin:10px 0;font-size:13px;color:#ddd">{b['description']}</p>
+                <div style="background:rgba(255,255,255,0.03);padding:8px 12px;border-radius:6px;font-size:12px">
+                    🛡️ <b>On-Time Completion Rate:</b> <span style="color:#00c864;font-weight:700">{b['on_time']}</span><br>
+                    🏛️ <b>Delivery History:</b> {b['completion_history']}
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+            
+    with tab_projects:
+        st.markdown("#### 🏗️ Under Construction Projects & RERA Timelines")
+        projs = get_all_projects()
+        
+        for idx, pr in enumerate(projs):
+            with st.expander(f"🏢 {pr['name']} — {pr['city']} | {pr['price_range']}"):
+                c1, c2 = st.columns(2)
+                with c1:
+                    st.markdown(f"""
+                    <p><b>Builder:</b> {pr['builder']}</p>
+                    <p><b>Configuration:</b> {', '.join(pr['bhk_options'])}</p>
+                    <p><b>RERA Registration:</b> {pr['rera_no']}</p>
+                    <p><b>Description:</b> {pr['description']}</p>
+                    """, unsafe_allow_html=True)
+                with c2:
+                    st.markdown(f"""
+                    <div class="info-box">
+                        <p>Total Units: {pr['total_units']} | Remaining: {pr['available_units']}</p>
+                        <p>Appraisal Rating: {'⭐' * pr['rating']}</p>
+                        <p><b>Possession Target:</b> {pr['possession_date']}</p>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    
+                    st.write(f"Construction Progress: **{pr['progress_percent']}%**")
+                    st.progress(pr['progress_percent'] / 100)
+                    
+                    wa = f"https://wa.me/919999999999?text=Enquiry+about+{pr['name']}"
+                    st.link_button("💬 Enquire Construction Layout", wa, use_container_width=True)
+
+# ─────────────────────────────────────────────────────────────
+# PAGE: FINANCE CALCULATORS
+# ─────────────────────────────────────────────────────────────
+def render_finance():
+    st.markdown("### 💰 SmartEstate AI Finance Calculators")
+    f_tab1, f_tab2, f_tab3 = st.tabs(["Home Loan EMI", "Eligibility Calculator", "Stamp Duty Calculator"])
+    
+    with f_tab1:
+        st.markdown("#### 📊 Amortization EMI Planner")
+        pr_amt = st.number_input("Purchase Price (₹)", value=5000000, step=100000)
+        down_pmt = st.slider("Down Payment %", 10, 50, 20)
+        loan_r = st.slider("Annual Interest Rate (%)", 6.0, 15.0, 8.5, 0.1, key="loan_r_fin")
+        ten_y = st.slider("Tenure in Years", 5, 30, 20, key="loan_t_fin")
+        
+        p_val = pr_amt * (1 - down_pmt/100)
+        emi_dat = calculate_emi(p_val, loan_r, ten_y)
+        
+        st.markdown(f"""
+        <div class="info-box">
+            <h3>Monthly Payable EMI: <span style="color:#d4af37">{format_price(emi_dat['emi'])}</span></h3>
+            <p>Principal Loan: {format_price(emi_dat['principal'])} | Down Payment amount paid: {format_price(pr_amt * down_pmt/100)}</p>
+            <p>Total Interest to pay: <span style="color:#ff5050">{format_price(emi_dat['total_interest'])}</span></p>
+        </div>
+        """, unsafe_allow_html=True)
+        
+    with f_tab2:
+        st.markdown("#### 🏦 Home Loan Eligibility Check")
+        inc = st.number_input("Net Monthly Salaried Income (₹)", value=80000, step=5000)
+        emi_e = st.number_input("Existing Monthly EMI Deductions (₹)", value=0)
+        el_r = st.slider("Interest Rate Expected (%)", 6.0, 15.0, 8.5)
+        el_t = st.slider("Loan Tenure Expected (Years)", 5, 30, 20)
+        
+        res = loan_eligibility(inc, emi_e, el_r, el_t)
+        st.markdown(f"""
+        <div class="info-box" style="border-color:#00c864">
+            <h4>Maximum Loan Eligibility: <span style="color:#00c864">{format_price(res['eligible_amount'])}</span></h4>
+            <p>Max monthly EMI cap: {format_price(res['max_emi'])}</p>
+        </div>
+        """, unsafe_allow_html=True)
+        
+    with f_tab3:
+        st.markdown("#### 🧾 Stamp Duty & Registration Charges")
+        st_state = st.selectbox("Select Metro State", ["Uttar Pradesh", "Maharashtra", "Delhi", "Karnataka", "Haryana"])
+        pr_val = st.number_input("Property Valuation (₹)", value=6000000, step=100000)
+        is_w = st.checkbox("Buying under Female Owner name?")
+        
+        s_res = stamp_duty(st_state, pr_val, is_w)
+        st.markdown(f"""
+        <div class="info-box">
+            <p>Stamp Duty Rate: **{s_res['stamp_duty_rate']}%**</p>
+            <p>Stamp Duty Amount: **{format_price(s_res['stamp_duty_amount'])}**</p>
+            <p>Registration Charges: **{format_price(s_res['registration_fee'])}**</p>
+            <hr>
+            <h4>Total Surcharges: <span style="color:#d4af37">{format_price(s_res['total_cost'])}</span></h4>
+        </div>
+        """, unsafe_allow_html=True)
+
+# ─────────────────────────────────────────────────────────────
+# PAGE: WISHLIST
+# ─────────────────────────────────────────────────────────────
+def render_wishlist():
+    st.markdown("### ❤️ My Saved Properties")
+    if not is_logged_in():
+        st.warning("🔐 Please login from the sidebar first.")
+        st.stop()
+        
+    user = st.session_state["user"]
+    wish_ids = user.get("wishlist", [])
+    
+    if not wish_ids:
+        st.info("Your wishlist is empty. Browse properties and click wishlist button.")
+    else:
+        for idx, w_id in enumerate(wish_ids):
+            pr = get_property_by_id(w_id)
+            if pr:
+                st.markdown(property_card_html(pr), unsafe_allow_html=True)
+                col_x, col_y = st.columns(2)
+                with col_x:
+                    if st.button("👁 View Listing Details", key=f"wish_v_{pr['id']}", use_container_width=True):
+                        st.session_state["view_prop_id"] = pr["id"]
+                        st.session_state["page"] = "Property Detail"
+                        st.rerun()
+                with col_y:
+                    if st.button("🗑️ Remove Wishlist", key=f"wish_rem_{pr['id']}", use_container_width=True):
+                        users = _load_data(USERS_FILE)
+                        for u_data in users:
+                            if u_data["id"] == user["id"]:
+                                u_data.setdefault("wishlist", []).remove(pr["id"])
+                        _save_data(USERS_FILE, users)
+                        st.session_state["user"] = next(usr for usr in users if usr["id"] == user["id"])
+                        st.rerun()
+
+# ─────────────────────────────────────────────────────────────
+# PAGE: ADMIN PANEL
+# ─────────────────────────────────────────────────────────────
+def render_admin():
+    st.markdown("### 🛡️ SmartEstate Admin Dashboard")
+    if not is_logged_in() or st.session_state["user"]["role"] != "admin":
+        st.error("🚫 Access Denied. Admin login required.")
+        st.stop()
+        
+    all_p = get_all_properties(approved_only=False)
+    pending_p = [p for p in all_p if not p.get("approved")]
+    
+    adm_t1, adm_t2 = st.tabs(["Listings Queue", "User Management"])
+    with adm_t1:
+        st.markdown(f"#### Pending Verification Queue ({len(pending_p)})")
+        if not pending_p:
+            st.success("All listings approved!")
+        else:
+            for p in pending_p:
+                st.markdown(f"""
+                <div class="info-box">
+                    <h5>🏠 {p['title']}</h5>
+                    <p>Price: {format_price(p['price'])} | Locality: {p['area']}, {p['city']}</p>
+                    <p>Listed by: {p['owner_name']} ({p['owner_phone']})</p>
+                </div>
+                """, unsafe_allow_html=True)
+                col_ok, col_no = st.columns(2)
+                with col_ok:
+                    if st.button("✅ Approve Property", key=f"appr_{p['id']}", use_container_width=True):
+                        update_property(p["id"], {"approved": True})
+                        st.success("Property listing approved live!")
+                        st.rerun()
+                with col_no:
+                    if st.button("❌ Reject / Delete", key=f"rej_{p['id']}", use_container_width=True):
+                        delete_property(p["id"])
+                        st.warning("Listing rejected.")
+                        st.rerun()
+                        
+    with adm_t2:
+        st.markdown("#### Platform Users Registry")
+        usrs = _load_data(USERS_FILE)
+        df_users = pd.DataFrame(usrs)[["id", "name", "email", "phone", "role", "kyc_verified"]]
+        st.dataframe(df_users, use_container_width=True)
+        
+        u_sel = st.selectbox("Select User to Verify KYC", [u["id"] for u in usrs if not u.get("kyc_verified")])
+        if u_sel:
+            if st.button("Approve KYC Status"):
+                for u in usrs:
+                    if u["id"] == u_sel:
+                        u["kyc_verified"] = True
+                _save_data(USERS_FILE, usrs)
+                st.success(f"KYC status updated to verified for {u_sel}")
+                st.rerun()
+
+# ─────────────────────────────────────────────────────────────
+# Router execution
+# ─────────────────────────────────────────────────────────────
+if st.session_state["page"] == "Home":
+    render_home()
+elif st.session_state["page"] == "Search Properties":
+    render_search()
+elif st.session_state["page"] == "Property Detail":
+    render_detail()
+elif st.session_state["page"] == "AI Advisor & Search":
+    render_ai_consultant()
+elif st.session_state["page"] == "Locality Intelligence":
+    render_locality()
+elif st.session_state["page"] == "Post Property / Requirement":
+    render_post_property()
+elif st.session_state["page"] == "Dashboard & CRM":
+    render_dashboard()
+elif st.session_state["page"] == "Builders & Projects":
+    render_projects()
+elif st.session_state["page"] == "Finance Calculators":
+    render_finance()
+elif st.session_state["page"] == "My Wishlist":
+    render_wishlist()
+elif st.session_state["page"] == "Admin Panel":
+    render_admin()
             st.plotly_chart(fig, use_container_width=True)
