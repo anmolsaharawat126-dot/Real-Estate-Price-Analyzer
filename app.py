@@ -190,7 +190,7 @@ CITY_ALIASES = {
     "kolkata":"kolkata","calcutta":"kolkata",
     "gurugram":"gurugram","gurgaon":"gurugram",
     "noida":"noida","greater noida":"greater noida",
-    "ahmedabad":"ahmedabad","surat":"surat","vadodara":"vadodara",
+    "ahmedabad":"ahmedabad","surat":"surat","badodara":"vadodara",
     "jaipur":"jaipur","jodhpur":"jodhpur","udaipur":"udaipur",
     "lucknow":"lucknow","kanpur":"kanpur","agra":"agra",
     "varanasi":"varanasi","prayagraj":"prayagraj","allahabad":"prayagraj",
@@ -211,7 +211,6 @@ CITY_ALIASES = {
 # ── GEOCODING ─────────────────────────────────────────────────
 @st.cache_data(ttl=600, show_spinner=False)
 def geocode_address(address_str):
-    # Try ArcGIS first (fast, accurate, doesn't block cloud IPs)
     try:
         geo = ArcGIS(user_agent="gharmool_arcgis_v4")
         loc = geo.geocode(address_str + ", India", timeout=10)
@@ -221,7 +220,6 @@ def geocode_address(address_str):
     except Exception:
         pass
         
-    # Fallback to Nominatim
     try:
         geo = Nominatim(user_agent="gharmool_nominatim_v4")
         loc = geo.geocode(address_str + ", India", timeout=10, language="en")
@@ -234,7 +232,6 @@ def geocode_address(address_str):
 
 @st.cache_data(ttl=600, show_spinner=False)
 def reverse_geocode(lat, lon):
-    # Try ArcGIS first
     try:
         geo = ArcGIS(user_agent="gharmool_arcgis_rev_v4")
         loc = geo.reverse((lat, lon), timeout=10)
@@ -243,7 +240,6 @@ def reverse_geocode(lat, lon):
     except Exception:
         pass
         
-    # Fallback to Nominatim
     try:
         geo = Nominatim(user_agent="gharmool_nominatim_rev_v4")
         loc = geo.reverse((lat, lon), timeout=10, language="en")
@@ -270,13 +266,39 @@ def geocode_address_with_fallback(address_str):
             return res
     return None
 
+def extract_area_from_query(query, city, state, pincode):
+    q = query.lower()
+    q = re.sub(r"\b(india|ind)\b", "", q)
+    q = re.sub(r"\b\d{6}\b", "", q)
+    if state:
+        for part in state.split(","):
+            part_clean = part.lower().strip()
+            if part_clean:
+                q = re.sub(r"\b" + re.escape(part_clean) + r"\b", "", q)
+    if city:
+        q = re.sub(r"\b" + re.escape(city.lower().strip()) + r"\b", "", q)
+        
+    q = re.sub(r"[,\-\.\(\)\{\}\[\]\/]", " ", q)
+    q = re.sub(r"\b(street|road|gali|lane|house|h\s*no|flat|plot|near|opp|opposite|behind|beside|at)\b", "", q)
+    words = [w.strip() for w in q.split() if w.strip()]
+    
+    cleaned_words = []
+    for w in words:
+        if not re.match(r"^\d+$", w) and len(w) > 2:
+            cleaned_words.append(w)
+            
+    if cleaned_words:
+        return " ".join(cleaned_words)
+    elif words:
+        return " ".join(words)
+    return ""
+
 def extract_address_components(full_address, raw_data):
     city = ""
     area = ""
     state = ""
     pincode = "N/A"
     
-    # Try Nominatim structure first
     addr = {}
     if isinstance(raw_data, dict):
         addr_val = raw_data.get("address", {})
@@ -303,40 +325,31 @@ def extract_address_components(full_address, raw_data):
         state = addr.get("state", "")
         pincode = addr.get("postcode", "N/A")
         
-    # Smart parser for full_address string (works for ArcGIS & fallback)
     if not city or not state:
         parts = [p.strip() for p in full_address.split(",") if p.strip()]
-        # Remove country
         if parts and parts[-1].lower() in ["india", "ind"]:
             parts.pop()
             
-        # Extract pincode from parts if present
         for i in range(len(parts)):
             pc_match = re.search(r"\b\d{6}\b", parts[i])
             if pc_match:
                 pincode = pc_match.group(0)
                 parts[i] = re.sub(r"\b\d{6}\b", "", parts[i]).strip()
                 
-        # Filter out empty parts
         parts = [p for p in parts if p]
         
-        # Search for a known city from right to left
         city_idx = -1
         for idx in range(len(parts) - 1, -1, -1):
             p_clean = parts[idx].lower().strip()
-            # check if it matches a known city or alias
             if p_clean in CITY_BASE_RATES or p_clean in CITY_ALIASES:
                 city_idx = idx
                 break
                 
         if city_idx != -1:
             city = parts[city_idx].lower().strip()
-            # State is the elements to the right of city
             state = ", ".join(parts[city_idx+1:]) if city_idx < len(parts) - 1 else parts[city_idx]
-            # Area is all elements to the left of city
             area = ", ".join(parts[:city_idx]).lower().strip()
         else:
-            # Fallback if no known city matches
             if len(parts) >= 1:
                 state = parts[-1]
             if len(parts) >= 2:
@@ -388,12 +401,61 @@ def extract_pincode(raw_data):
         full_address = ""
     return extract_address_components(full_address, raw_data)[3]
 
+@st.cache_data(ttl=3600, show_spinner=False)
+def fetch_online_rate(area, city):
+    if not area or not city:
+        return None
+    area_clean = area.strip()
+    city_clean = city.strip()
+    query = f"property rate per sq ft in {area_clean} {city_clean}"
+    url = "https://html.duckduckgo.com/html/?" + urllib.parse.urlencode({"q": query})
+    req = urllib.request.Request(
+        url,
+        headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"}
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=5) as response:
+            html = response.read().decode("utf-8", errors="ignore")
+        
+        clean_text = re.sub(r'<[^>]+>', ' ', html)
+        clean_text = re.sub(r'\s+', ' ', clean_text)
+        
+        rates = []
+        matches = re.findall(
+            r"(?:rs\.?|inr)?\s*(\d{1,3}(?:,\d{3})+|\d{4,6})\s*(?:-|to)?\s*(?:(?:rs\.?|inr)?\s*(\d{1,3}(?:,\d{3})+|\d{4,6}))?\s*(?:/|\bper\b)\s*(?:sq\.?\s*ft|sq\.?\s*feet|square\s*feet|sqft)", 
+            clean_text, 
+            re.IGNORECASE
+        )
+        
+        for m in matches:
+            for val in m:
+                if val:
+                    num = int(val.replace(",", ""))
+                    if 500 < num < 150000:
+                        rates.append(num)
+                        
+        if not rates:
+            snippets = re.findall(r"([^.!?]{1,100}?(?:\b\d{1,3}(?:,\d{3})+|\b\d{4,6})\b[^.!?]{1,100}?)", clean_text, re.IGNORECASE)
+            for snippet in snippets:
+                if any(kw in snippet.lower() for kw in ["sqft", "sq ft", "square feet", "per sq"]):
+                    nums = re.findall(r"\b(\d{1,3}(?:,\d{3})+|\d{4,6})\b", snippet)
+                    for n in nums:
+                        num = int(n.replace(",", ""))
+                        if 800 < num < 100000:
+                            rates.append(num)
+                            
+        if rates:
+            return int(sum(rates) / len(rates))
+    except Exception:
+        pass
+    return None
+
 def get_per_sqft_rate(city, area, class_override="Auto-Detect (Based on Area Name)"):
     city_l = city.lower().strip()
     area_l = area.lower().strip()
     base = CITY_BASE_RATES.get(city_l, CITY_BASE_RATES["default_urban"])
     
-    # Locality Premium Class Override
+    # 1. Locality Premium Class Override
     if "Premium Locality" in class_override:
         area_mult = 2.2
     elif "Good Locality" in class_override:
@@ -403,14 +465,45 @@ def get_per_sqft_rate(city, area, class_override="Auto-Detect (Based on Area Nam
     elif "Developing Locality" in class_override:
         area_mult = 0.8
     else:
+        # 2. Try online search fetch first
+        if area_l:
+            online_rate = fetch_online_rate(area_l, city_l)
+            if online_rate:
+                return round(online_rate / 50) * 50
+                
+        # 3. Check known multipliers database
         area_mult = 1.0
-        # ✅ CRITICAL FIX: only match if area is non-empty
+        matched = False
         if area_l:
             for ak, mult in AREA_MULTIPLIERS.items():
                 if len(ak) >= 4 and (ak in area_l or area_l in ak):
                     area_mult = mult
+                    matched = True
                     break
-    return int(base * area_mult)
+                    
+        # 4. Fallback: Smart Keyword & Hash-based generator
+        if not matched and area_l:
+            premium_kws = ["civil lines", "cantt", "cantonment", "model town", "saket", "vihar", "golf", "enclave", "heights", "palace", "castle", "villa"]
+            good_kws = ["colony", "nagar", "society", "apartments", "extension", "sector", "phase", "puri", "bagh", "chowk"]
+            developing_kws = ["bypass", "village", "rural", "pind", "slum", "outer", "extension phase 2"]
+            
+            if any(kw in area_l for kw in premium_kws):
+                area_mult = 1.45
+            elif any(kw in area_l for kw in developing_kws):
+                area_mult = 0.85
+            elif any(kw in area_l for kw in good_kws):
+                area_mult = 1.15
+            else:
+                area_mult = 1.0
+                
+            hash_val = sum(ord(c) for c in area_l)
+            variance_pct = (hash_val % 25) - 12
+            variance_mult = 1.0 + (variance_pct / 100.0)
+            area_mult *= variance_mult
+
+    rate = int(base * area_mult)
+    rate = round(rate / 50) * 50
+    return rate
 
 def get_city_tier(city):
     t1 = ["mumbai","delhi","bengaluru","bangalore","hyderabad","pune",
@@ -673,6 +766,12 @@ with tab1:
                         raw=res.get("raw",{})
                         st.session_state.geo_result   =res
                         st.session_state.city_name, st.session_state.area_name, st.session_state.state_name, st.session_state.pincode = extract_address_components(res.get("full_address",""), raw)
+                        
+                        # Fallback: extract area from original search query if parsed area is empty
+                        if not st.session_state.area_name.strip():
+                            st.session_state.area_name = extract_area_from_query(
+                                addr_in.strip(), st.session_state.city_name, st.session_state.state_name, st.session_state.pincode)
+                        
                         st.session_state.full_address =res.get("full_address","")
                         st.session_state.per_sqft     =get_per_sqft_rate(
                             st.session_state.city_name,st.session_state.area_name)
@@ -705,19 +804,18 @@ with tab1:
         if st.session_state.geo_result:
             gr=st.session_state.geo_result
             lat_g,lon_g=gr.get("lat",0),gr.get("lon",0)
-            gmaps_q=urllib.parse.quote(st.session_state.full_address)
             tier_lbl=["🥇 Tier 1","🥈 Tier 2","🥉 Tier 3"][get_city_tier(st.session_state.city_name)-1]
             st.markdown(f"""
             <div class="gcard" style="border-color:rgba(0,198,167,0.3);">
               <div class="gcard-title">📋 Detected Address</div>
               <div class="info-row"><span class="info-label">📍 Area</span>
-                <span class="info-val">{{st.session_state.area_name.title() if st.session_state.area_name else '—'}}</span></div>
+                <span class="info-val">{st.session_state.area_name.title() if st.session_state.area_name else '—'}</span></div>
               <div class="info-row"><span class="info-label">🏙️ City</span>
-                <span class="info-val">{{st.session_state.city_name.title() if st.session_state.city_name else '—'}}</span></div>
+                <span class="info-val">{st.session_state.city_name.title() if st.session_state.city_name else '—'}</span></div>
               <div class="info-row"><span class="info-label">🗺️ State</span>
-                <span class="info-val">{{st.session_state.state_name if st.session_state.state_name else '—'}}</span></div>
+                <span class="info-val">{st.session_state.state_name if st.session_state.state_name else '—'}</span></div>
               <div class="info-row"><span class="info-label">📮 PIN Code</span>
-                <span class="info-val">{{st.session_state.pincode}}</span></div>
+                <span class="info-val">{st.session_state.pincode}</span></div>
               <div class="info-row"><span class="info-label">🌐 Lat / Lon</span>
                 <span class="info-val">{lat_g:.4f}, {lon_g:.4f}</span></div>
               <div class="info-row"><span class="info-label">🏆 City Tier</span>
@@ -726,30 +824,16 @@ with tab1:
                 <div style="color:#7a8499;font-size:0.75rem;margin-bottom:0.2rem;">ESTIMATED RATE (2024)</div>
                 <div style="color:#f5a623;font-weight:800;font-size:1.5rem;">Rs.{st.session_state.per_sqft:,} / sq ft</div>
               </div>
-            </div>
-            <div class="gcard" style="padding:1rem;">
-              <div class="gcard-title">🔗 Google Maps</div>
-              <div style="display:flex;gap:0.5rem;flex-wrap:wrap;">
-                <a href="https://www.google.com/maps/search/?api=1&query={gmaps_q}" target="_blank"
-                   style="background:rgba(66,133,244,0.15);border:1px solid #4285f4;color:#4285f4;
-                          padding:6px 12px;border-radius:8px;font-size:0.8rem;text-decoration:none;">🗺️ Maps</a>
-                <a href="https://www.google.com/maps/@?api=1&map_action=pano&viewpoint={lat_g},{lon_g}" target="_blank"
-                   style="background:rgba(234,67,53,0.15);border:1px solid #ea4335;color:#ea4335;
-                          padding:6px 12px;border-radius:8px;font-size:0.8rem;text-decoration:none;">🚶 Street</a>
-                <a href="https://www.google.com/maps/search/schools+near/@{lat_g},{lon_g},15z" target="_blank"
-                   style="background:rgba(0,198,167,0.15);border:1px solid #00c6a7;color:#00c6a7;
-                          padding:6px 12px;border-radius:8px;font-size:0.8rem;text-decoration:none;">🏫 Nearby</a>
-                <a href="https://www.google.com/maps/dir/?api=1&destination={lat_g},{lon_g}" target="_blank"
-                   style="background:rgba(245,166,35,0.15);border:1px solid #f5a623;color:#f5a623;
-                          padding:6px 12px;border-radius:8px;font-size:0.8rem;text-decoration:none;">🧭 Route</a>
-              </div>
             </div>""",unsafe_allow_html=True)
 
     with col_map:
         map_tabs = st.tabs([
-            "🌍 Folium Map (Interactive Pin Drop)", 
-            "🛰️ Google Satellite Embed (Street Detail)", 
-            "🛣️ Google Road Map Embed"
+            "🌍 Folium Map (Pin Drop)", 
+            "🛰️ Google Satellite View", 
+            "🛣️ Google Street Map",
+            "🚶 Google Street View (360° Pano)",
+            "🏫 Nearby Amenities",
+            "🧭 Route Finder"
         ])
         
         with map_tabs[0]:
@@ -819,6 +903,82 @@ with tab1:
             st.components.v1.html(iframe_code, height=520)
             st.markdown("</div>",unsafe_allow_html=True)
             
+        with map_tabs[3]:
+            # Google Street View (360° Panorama)
+            if st.session_state.geo_result:
+                gr=st.session_state.geo_result
+                lat_g, lon_g = gr.get("lat", 0), gr.get("lon", 0)
+                embed_url = f"https://maps.google.com/maps?q=&layer=c&cbll={lat_g},{lon_g}&output=embed"
+                iframe_code = f"""
+                <iframe width="100%" height="520" frameborder="0" style="border:0; border-radius:16px; background:#07090f;"
+                  src="{embed_url}" allowfullscreen></iframe>
+                """
+                st.markdown('<div style="border-radius:16px;overflow:hidden;border:1px solid rgba(245,166,35,0.2);">',unsafe_allow_html=True)
+                st.components.v1.html(iframe_code, height=520)
+                st.markdown("</div>",unsafe_allow_html=True)
+            else:
+                st.warning("⚠️ Pehle address search karke location select karein.")
+                
+        with map_tabs[4]:
+            # Nearby Amenities
+            if st.session_state.geo_result:
+                gr=st.session_state.geo_result
+                lat_g, lon_g = gr.get("lat", 0), gr.get("lon", 0)
+                
+                c_am1, c_am2 = st.columns([1, 2])
+                with c_am1:
+                    amenity_type = st.selectbox(
+                        "Search Nearby",
+                        ["🏫 Schools & Colleges", "🏥 Hospitals & Clinics", "🍽️ Restaurants & Cafes", "🛒 Shopping & Malls", "🏦 Banks & ATMs", "🌳 Parks & Gardens"],
+                        key="amenity_select"
+                    )
+                
+                queries = {
+                    "🏫 Schools & Colleges": f"schools+colleges+near+{lat_g},{lon_g}",
+                    "🏥 Hospitals & Clinics": f"hospitals+clinics+near+{lat_g},{lon_g}",
+                    "🍽️ Restaurants & Cafes": f"restaurants+cafes+near+{lat_g},{lon_g}",
+                    "🛒 Shopping & Malls": f"shopping+malls+supermarkets+near+{lat_g},{lon_g}",
+                    "🏦 Banks & ATMs": f"banks+atms+near+{lat_g},{lon_g}",
+                    "🌳 Parks & Gardens": f"parks+gardens+near+{lat_g},{lon_g}"
+                }
+                q_val = queries[amenity_type]
+                embed_url = f"https://maps.google.com/maps?q={q_val}&z=15&output=embed"
+                iframe_code = f"""
+                <iframe width="100%" height="450" frameborder="0" style="border:0; border-radius:16px; background:#07090f;"
+                  src="{embed_url}" allowfullscreen></iframe>
+                """
+                st.markdown('<div style="border-radius:16px;overflow:hidden;border:1px solid rgba(245,166,35,0.2);">',unsafe_allow_html=True)
+                st.components.v1.html(iframe_code, height=450)
+                st.markdown("</div>",unsafe_allow_html=True)
+            else:
+                st.warning("⚠️ Pehle address search karke location select karein.")
+                
+        with map_tabs[5]:
+            # Route Finder
+            if st.session_state.geo_result:
+                gr=st.session_state.geo_result
+                lat_g, lon_g = gr.get("lat", 0), gr.get("lon", 0)
+                
+                c_rt1, c_rt2 = st.columns([2.5, 1])
+                start_pt = c_rt1.text_input("Starting Point", placeholder="e.g. Meerut, Uttar Pradesh or Gandhi Colony, Muzaffarnagar")
+                get_rt = c_rt2.button("🧭 Get Route", use_container_width=True)
+                
+                if start_pt.strip():
+                    saddr = urllib.parse.quote(start_pt.strip())
+                    embed_url = f"https://maps.google.com/maps?saddr={saddr}&daddr={lat_g},{lon_g}&output=embed"
+                else:
+                    embed_url = f"https://maps.google.com/maps?q={lat_g},{lon_g}&z=13&output=embed"
+                    
+                iframe_code = f"""
+                <iframe width="100%" height="450" frameborder="0" style="border:0; border-radius:16px; background:#07090f;"
+                  src="{embed_url}" allowfullscreen></iframe>
+                """
+                st.markdown('<div style="border-radius:16px;overflow:hidden;border:1px solid rgba(245,166,35,0.2); margin-top:0.5rem;">',unsafe_allow_html=True)
+                st.components.v1.html(iframe_code, height=450)
+                st.markdown("</div>",unsafe_allow_html=True)
+            else:
+                st.warning("⚠️ Pehle address search karke location select karein.")
+                
         if st.session_state.geo_result:
             st.markdown(f"""<div style="background:rgba(14,18,25,0.9);border:1px solid rgba(245,166,35,0.2);
                 border-radius:10px;padding:0.8rem 1rem;margin-top:0.8rem;font-size:0.82rem;color:#7a8499;">
@@ -973,9 +1133,7 @@ with tab2:
             else:
                 st.info("👈 Property details bharke Calculate Valuation dabao.")
 
-# ════════════════════════════════════════════════════
-# TAB 3
-# ════════════════════════════════════════════════════
+# ── FLOOR PLAN ────────────────────────────────────────────────
 with tab3:
     st.markdown("### 🏗️ Architectural Floor Plan Generator")
     col_fp1,col_fp2=st.columns([1,2.5])
@@ -1032,9 +1190,7 @@ with tab3:
               <div style="font-size:0.85rem;margin-top:0.5rem;">Engineer-quality floor plan yahan ayega</div>
             </div>""",unsafe_allow_html=True)
 
-# ════════════════════════════════════════════════════
-# TAB 4
-# ════════════════════════════════════════════════════
+# ── FORECAST ──────────────────────────────────────────────────
 with tab4:
     st.markdown("### 📈 Property Price Forecast")
     city_fc=st.session_state.city_name or "muzaffarnagar"
@@ -1075,9 +1231,7 @@ with tab4:
                              "Gain(Base)":f"+{int((base[i]/fc_val-1)*100)}%"})
         st.dataframe(pd.DataFrame(rows),use_container_width=True,hide_index=True)
 
-# ════════════════════════════════════════════════════
-# TAB 5
-# ════════════════════════════════════════════════════
+# ── MARKET INTELLIGENCE ─────────────────────────────────────────
 with tab5:
     st.markdown("### 📊 Market Intelligence & Development Index")
     city_mi=st.session_state.city_name or "muzaffarnagar"
