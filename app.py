@@ -238,7 +238,7 @@ html, body, [data-testid="stApp"] {
     background: linear-gradient(135deg, #0a0a16 0%, #0d1428 50%, #0a0a16 100%);
     color: #e8e8f0; font-family: 'Inter', sans-serif; min-height: 100vh;
 }
-#MainMenu, footer, header { visibility: hidden; }
+#MainMenu, footer, header[data-testid="stHeader"] { visibility: hidden; }
 [data-testid="stSidebar"] { background: #0d1128 !important; border-right: 1px solid rgba(212,175,55,0.2); }
 h1 { font-family: 'Playfair Display', serif !important; color: #fff !important; }
 h2, h3 { color: #d4af37 !important; font-weight: 700; }
@@ -359,7 +359,6 @@ def get_deal_verdict(listed_price, est_price):
 def detect_duplicates(title, area, size_sqft):
     props = get_all_properties(approved_only=False)
     for p in props:
-        # Check matching area and overlapping size (within 5% range)
         size_diff = abs(p["size_sqft"] - size_sqft) / size_sqft
         if p["area"].lower() == area.lower() and size_diff < 0.05:
             return True, p["id"]
@@ -400,7 +399,6 @@ def property_card_html(p: dict) -> str:
     bhk = f"{p.get('bhk','')}BHK · " if p.get("bhk") else ""
     sqft = f"{p.get('size_sqft','')} sqft" if p.get("size_sqft") else ""
     
-    # Calculate price tag dynamically
     est = estimate_price(p['city'], p['area'], p['size_sqft'], p.get('bhk', 2), p.get('type','apartment'))
     deal_lbl, deal_cls = get_deal_verdict(p['price'], est['estimated_price'])
     
@@ -819,13 +817,18 @@ with st.sidebar:
         "🛡️ Admin Panel"
     ]
     
-    current_idx = 0
-    for idx, p_name in enumerate(pages_list):
-        if st.session_state["page"] in p_name:
-            current_idx = idx
+    if "nav_selection" not in st.session_state:
+        st.session_state["nav_selection"] = pages_list[0]
 
-    selected_nav = st.radio("Navigation Menu", pages_list, index=current_idx)
-    st.session_state["page"] = selected_nav.split(" ", 1)[1]
+    for p_name in pages_list:
+        if st.session_state["page"] in p_name:
+            st.session_state["nav_selection"] = p_name
+
+    selected_nav = st.radio("Navigation Menu", pages_list, index=pages_list.index(st.session_state["nav_selection"]))
+    if selected_nav != st.session_state["nav_selection"]:
+        st.session_state["nav_selection"] = selected_nav
+        st.session_state["page"] = selected_nav.split(" ", 1)[1]
+        st.rerun()
 
     st.markdown("---")
 
@@ -1112,7 +1115,6 @@ def render_detail():
             </div>
             """, unsafe_allow_html=True)
             
-        # Recent Sales Table
         st.markdown("##### 🏛️ Recent Micro-Market Sales Comparison")
         base_rate = est['per_sqft_rate']
         sales_records = [
@@ -1139,7 +1141,6 @@ def render_detail():
             aqi_val = p.get("aqi", 120)
             aqi_status = "Good" if aqi_val < 50 else ("Moderate" if aqi_val < 100 else "Poor")
             
-            # Weather Block
             temp = 31 if p['city'].lower() in ['delhi', 'noida', 'gurgaon', 'mumbai'] else 25
             cond = "Sunny & Warm" if temp > 30 else "Cloudy & Breeze"
             
@@ -1177,13 +1178,9 @@ def render_detail():
         is_female = st.checkbox("Buying under Female Owner name? (1% Stamp Duty Rebate)")
         is_new_proj = st.checkbox("Under Construction Property? (5% GST Applicable)", value=(p.get("possession") != "ready"))
         
-        # Surcharges breakdown
         sd_data = stamp_duty(c_state, p["price"], is_female)
-        
-        # GST
         gst_amt = p["price"] * 0.05 if is_new_proj else 0.0
         
-        # Brokerage calculation
         poster_role = "owner"
         try:
             users = _load_data(USERS_FILE)
@@ -1241,7 +1238,6 @@ def render_detail():
         st.checkbox("Encumbrance Certificate (EC) checked", value=has_legal, disabled=True)
         st.checkbox("Property Floor Plan Layout Approved", value=p.get('has_floor_plan', False), disabled=True)
         
-        # Mock document downloads
         st.markdown("##### View Uploaded Documents")
         if has_legal:
             col_doc1, col_doc2 = st.columns(2)
@@ -1257,7 +1253,6 @@ def render_detail():
         selected_lawyer = st.selectbox("Select Lawyer", lawyers)
         if st.button("Request Booking", key="lawyer_book_btn"):
             if is_logged_in():
-                # save lawyer booking enquiry
                 save_enquiry(p["id"], st.session_state["user"]["id"], "lawyer_booking", f"Consultation requested with {selected_lawyer}")
                 st.success(f"Lawyer consultation request sent to {selected_lawyer}! They will contact you shortly.")
             else:
@@ -1319,7 +1314,6 @@ def render_detail():
     with dt6:
         st.markdown("#### 👤 Contact Listing Agent / Owner")
         
-        # Check if phone number is hidden
         if p.get("hide_contact"):
             st.warning("🔒 Owner has hidden their direct phone number to prevent spam.")
             if is_logged_in():
@@ -1364,7 +1358,6 @@ def render_detail():
             </div>
             """, unsafe_allow_html=True)
             
-        # In-App Chat Simulation
         st.markdown("##### 💬 Send Direct Chat Message")
         if is_logged_in():
             chat_msg = st.text_input("Type your message to the owner", placeholder="Is the price negotiable?")
@@ -1500,7 +1493,6 @@ def render_locality():
         </div>
         """, unsafe_allow_html=True)
         
-        # Price Trend Graph
         if PLOTLY_OK:
             st.markdown("#### 📈 5-Year Area Price Trend (per sqft)")
             fig = go.Figure()
@@ -1512,277 +1504,3 @@ def render_locality():
             ))
             fig.update_layout(paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", font_color="#fff")
             st.plotly_chart(fig, use_container_width=True)
-
-# ─────────────────────────────────────────────────────────────
-# PAGE: POST PROPERTY OR REQUIREMENT
-# ─────────────────────────────────────────────────────────────
-def render_post_property():
-    st.markdown("### 📤 Upload Center")
-    
-    post_tab, req_tab = st.tabs(["Post Property", "Post Buyer Requirement"])
-    
-    # Sub-tab 1: Post Property
-    with post_tab:
-        if not is_logged_in():
-            st.warning("🔐 Please login from the sidebar first to post properties.")
-        else:
-            user = st.session_state["user"]
-            with st.form("post_prop_form"):
-                title = st.text_input("Title *", placeholder="e.g. Elegant 3BHK in Sector 137, Noida")
-                col_a, col_b = st.columns(2)
-                with col_a:
-                    p_type = st.selectbox("Type", ["apartment", "villa", "plot", "office", "shop"])
-                    city = st.text_input("City *", placeholder="e.g. Noida")
-                    state = st.text_input("State", placeholder="e.g. Uttar Pradesh")
-                    hide_phone = st.checkbox("Hide my phone number from public layout")
-                with col_b:
-                    listing = st.selectbox("Listed for", ["buy", "rent"])
-                    area = st.text_input("Area *", placeholder="e.g. Sector 137")
-                    price = st.number_input("Price (₹) *", min_value=1000)
-                    
-                sqft = st.number_input("Sqft Size *", min_value=100)
-                bhk = st.selectbox("BHK", [1, 2, 3, 4, 5])
-                desc = st.text_area("Description")
-                
-                st.markdown("##### 📄 Document Verification & Floor Plans")
-                rera_no_input = st.text_input("RERA Registration Number", placeholder="e.g. UPRERAPRJ12345")
-                uploaded_docs = st.file_uploader("Upload Legal Property Documents (Title Deed, Sale Deed)", accept_multiple_files=True)
-                uploaded_floor = st.file_uploader("Upload Floor Plan Layout Image", type=["png", "jpg", "jpeg"])
-                uploaded_photos = st.file_uploader("Upload Property Photos", type=["png", "jpg", "jpeg"], accept_multiple_files=True)
-                
-                st.markdown("**Choose Listing Plan**")
-                plan = st.radio("Upload Plan", ["Free (Standard)", "Featured Plan (₹499/mo) - 💎 Premium badge"])
-                
-                if st.form_submit_button("🚀 Post Property Listing"):
-                    if not title or not city or not area or price <= 0:
-                        st.error("Please fill all mandatory fields.")
-                    else:
-                        # Duplicate check
-                        is_dup, dup_id = detect_duplicates(title, area, sqft)
-                        if is_dup:
-                            st.warning(f"⚠️ AI detected this might be a duplicate listing of property ID {dup_id}!")
-                        else:
-                            # Handle photo uploads
-                            images_saved = []
-                            if uploaded_photos:
-                                for idx, f in enumerate(uploaded_photos):
-                                    fn = f"p_{int(datetime.now().timestamp())}_{idx}.jpg"
-                                    fpath = os.path.join(UPLOADS_DIR, fn)
-                                    try:
-                                        with open(fpath, "wb") as out_f:
-                                            out_f.write(f.getbuffer())
-                                        images_saved.append(f"assets/uploads/{fn}")
-                                    except Exception:
-                                        pass
-                            
-                            loc = geocode(f"{area}, {city}, {state}, India")
-                            new_p = {
-                                "id": f"prop_{int(datetime.now().timestamp())}",
-                                "title": title, "type": p_type, "listing_type": listing,
-                                "city": city, "area": area, "state": state,
-                                "pincode": "", "price": price, "price_per_sqft": round(price/sqft), "size_sqft": sqft,
-                                "bhk": bhk, "bedrooms": bhk, "bathrooms": bhk - 1 if bhk > 1 else 1, "parking": 1,
-                                "floor": 1, "total_floors": 4, "furnishing": "unfurnished", "status": "available",
-                                "verified": bool(uploaded_docs), "premium": "Featured" in plan, "lat": loc["lat"], "lng": loc["lng"],
-                                "description": desc, "amenities": ["parking", "security"], "images": images_saved,
-                                "owner_name": user["name"], "owner_phone": user["phone"], "owner_whatsapp": user["phone"],
-                                "owner_email": user["email"], "posted_by": user["id"],
-                                "posted_date": datetime.now().strftime("%Y-%m-%d"), "views": 0, "leads": 0,
-                                "possession": "ready", "age_years": 0, "facing": "East", "approved": False,
-                                "hide_contact": hide_phone, "aqi": 100, "ev_charging": False, "wheelchair_access": True,
-                                "price_history": [price],
-                                "rera_registered": bool(rera_no_input),
-                                "rera_no": rera_no_input,
-                                "legal_approved": bool(uploaded_docs),
-                                "has_floor_plan": bool(uploaded_floor)
-                            }
-                            save_property(new_p)
-                            st.success("Submitted! Property is pending approval from Admin.")
-                            st.balloons()
-                            
-    # Sub-tab 2: Post Buyer Requirement
-    with req_tab:
-        if not is_logged_in():
-            st.warning("🔐 Please login from the sidebar first to post requirements.")
-        else:
-            user = st.session_state["user"]
-            with st.form("buyer_req_form"):
-                req_city = st.text_input("Target City *", placeholder="Noida")
-                req_bhk = st.selectbox("BHK Required", [1, 2, 3, 4, 5])
-                req_budget = st.number_input("Max Budget (₹) *", min_value=100000)
-                
-                if st.form_submit_button("📢 Broadcast Requirement"):
-                    reqs = _load_data(REQ_FILE)
-                    reqs.append({
-                        "id": f"req_{int(datetime.now().timestamp())}",
-                        "buyer_id": user["id"],
-                        "buyer_name": user["name"],
-                        "city": req_city,
-                        "bhk": req_bhk,
-                        "budget": req_budget,
-                        "timestamp": datetime.now().strftime("%Y-%m-%d")
-                    })
-                    _save_data(REQ_FILE, reqs)
-                    st.success("Requirement broadcasted! AI will match this with property listings and notify matching owners.")
-
-# ─────────────────────────────────────────────────────────────
-# PAGE: DASHBOARD & CRM
-# ─────────────────────────────────────────────────────────────
-def render_dashboard():
-    st.markdown("### 📊 Dashboard & CRM Manager")
-    if not is_logged_in():
-        st.warning("🔐 Please login from the sidebar first.")
-        st.stop()
-        
-    user = st.session_state["user"]
-    my_props = get_properties_by_user(user["id"])
-    
-    t_list, t_leads, t_hub, t_crm, t_chats = st.tabs(["Listings Managed", "Notifications & Leads", "My Buyer Hub", "Agent CRM Portal", "In-App Chats"])
-    
-    # Tab 1: Listings Managed
-    with t_list:
-        if not my_props:
-            st.info("You haven't listed any properties yet.")
-        else:
-            for pr in my_props:
-                st.markdown(f"""
-                <div class="info-box">
-                    <h5>🏠 {pr['title']}</h5>
-                    <p>Price: {format_price(pr['price'])} | City: {pr['city']} | Status: **{pr['status'].upper()}**</p>
-                    <p>Views: 👁 {pr.get('views',0)} | Leads: 📩 {pr.get('leads',0)} | Approved: {'✅ Yes' if pr['approved'] else '⏳ Pending Review'}</p>
-                </div>
-                """, unsafe_allow_html=True)
-                col_sd, col_dl = st.columns(2)
-                with col_sd:
-                    if pr["status"] == "available":
-                        if st.button("Mark as Sold / Rented", key=f"sold_{pr['id']}"):
-                            update_property(pr["id"], {"status": "sold"})
-                            st.success("Status updated!")
-                            st.rerun()
-                with col_dl:
-                    if st.button("Delete Listing", key=f"del_{pr['id']}"):
-                        delete_property(pr["id"])
-                        st.warning("Property deleted.")
-                        st.rerun()
-                        
-    # Tab 2: Notifications & Leads
-    with t_leads:
-        st.markdown("#### Call Back Requests")
-        calls = _load_data(CALLS_FILE)
-        my_calls = [c for c in calls if get_property_by_id(c["prop_id"]) and get_property_by_id(c["prop_id"])["posted_by"] == user["id"]]
-        
-        if not my_calls:
-            st.info("No callback requests at this moment.")
-        else:
-            for c in my_calls:
-                st.markdown(f"""
-                <div class="info-box">
-                    <p>Buyer Name: **{c['buyer_name']}** | Phone: **{c['buyer_phone']}**</p>
-                    <p>Requested On: {c['timestamp']} | Status: **{c['status'].upper()}**</p>
-                </div>
-                """, unsafe_allow_html=True)
-                if c["status"] == "pending":
-                    if st.button("Approve Call Request", key=f"ap_call_{c['id']}"):
-                        c["status"] = "approved"
-                        _save_data(CALLS_FILE, calls)
-                        st.success("Approved call request!")
-                        st.rerun()
-                        
-        st.markdown("#### 📅 Scheduled Site Visits")
-        visits = _load_data(VISITS_FILE)
-        my_visits = [v for v in visits if v.get("posted_by") == user["id"]]
-        if not my_visits:
-            st.info("No scheduled site visits.")
-        else:
-            for v in my_visits:
-                st.markdown(f"""
-                <div class="info-box">
-                    <p>Buyer: **{v['buyer_name']}** ({v['buyer_phone']})</p>
-                    <p>Listing: **{v['prop_title']}**</p>
-                    <p>Type: **{v['tour_type']}** | Date: **{v['date']}** | Time: **{v['time']}**</p>
-                    <p>Status: **{v['status'].upper()}**</p>
-                </div>
-                """, unsafe_allow_html=True)
-                if v["status"] == "pending":
-                    col_app, col_rej = st.columns(2)
-                    with col_app:
-                        if st.button("Approve Visit", key=f"app_vis_{v['id']}"):
-                            v["status"] = "approved"
-                            _save_data(VISITS_FILE, visits)
-                            st.success("Approved visit!")
-                            st.rerun()
-                    with col_rej:
-                        if st.button("Reject Visit", key=f"rej_vis_{v['id']}"):
-                            v["status"] = "rejected"
-                            _save_data(VISITS_FILE, visits)
-                            st.warning("Rejected visit.")
-                            st.rerun()
-
-        st.markdown("#### AI Requirement Matches")
-        reqs = _load_data(REQ_FILE)
-        matched_reqs = []
-        for r in reqs:
-            for p in my_props:
-                if p["city"].lower() == r["city"].lower() and p["bhk"] == r["bhk"] and p["price"] <= r["budget"]:
-                    matched_reqs.append((r, p))
-                    
-        if not matched_reqs:
-            st.info("No active buyer requirements match your listings right now.")
-        else:
-            for r, p in matched_reqs:
-                st.markdown(f"""
-                <div class="info-box" style="border-color:#00c864">
-                    <h5>🔥 AI Match Found!</h5>
-                    <p>Buyer **{r['buyer_name']}** is looking for a **{r['bhk']} BHK** in **{r['city']}** with a budget of **{format_price(r['budget'])}**</p>
-                    <p>Matching Property: **{p['title']}**</p>
-                    <p>Contact Email: {r['buyer_id']} (Send proposal directly!)</p>
-                </div>
-                """, unsafe_allow_html=True)
-                if st.button(f"Message {r['buyer_name']}", key=f"match_chat_{r['id']}_{p['id']}"):
-                    chats = _load_data(CHATS_FILE)
-                    chats.append({
-                        "sender_id": user["id"],
-                        "sender_name": user["name"],
-                        "receiver_id": r["buyer_id"],
-                        "prop_id": p["id"],
-                        "prop_title": p["title"],
-                        "msg": f"Hi, I saw your requirement in {r['city']}. My property '{p['title']}' matches your search! Let me know if you would like to discuss.",
-                        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M")
-                    })
-                    _save_data(CHATS_FILE, chats)
-                    st.success(f"Notification message sent to {r['buyer_name']}! Check replies in Chats tab.")
-                
-    # Tab 3: My Buyer Hub
-    with t_hub:
-        st.markdown("#### 🛒 Buyer Activity & Workspace")
-        
-        visits = _load_data(VISITS_FILE)
-        calls = _load_data(CALLS_FILE)
-        reqs = _load_data(REQ_FILE)
-        
-        hub_opt = st.radio("Activity Category", ["Profile & KYC", "My Scheduled Tours", "My Call Requests", "My Requirements Broadcasted"], horizontal=True)
-        
-        if hub_opt == "Profile & KYC":
-            st.markdown("#### 🛡️ Profile KYC Verification")
-            if user.get("kyc_verified"):
-                st.success("✅ Your profile is fully KYC Verified. You have the 'Verified Listing Owner' or 'Trusted Agent' badge active!")
-            else:
-                st.markdown("<p style='color:#aaa'>Verify your profile with Aadhaar & PAN card to get the 👑 Verified Owner or 🎖️ Trusted Agent badge and increase leads.</p>", unsafe_allow_html=True)
-                
-                # Setup session state helper
-                if "kyc_otp_sent" not in st.session_state:
-                    st.session_state["kyc_otp_sent"] = False
-                
-                with st.form("kyc_verif_form"):
-                    aadhaar_no = st.text_input("Aadhaar Number (12 digits)", placeholder="e.g. 123456789012")
-                    pan_no = st.text_input("PAN Card Number (10 characters)", placeholder="e.g. ABCDE1234F")
-                    kyc_phone = st.text_input("Phone Number linked with Aadhaar", value=user.get("phone",""))
-                    
-                    kyc_submit = st.form_submit_button("📩 Generate Aadhaar OTP")
-                    if kyc_submit:
-                        if len(aadhaar_no) != 12 or not aadhaar_no.isdigit():
-                            st.error("Aadhaar number must be exactly 12 digits.")
-                        elif len(pan_no) != 10:
-                            st.error("PAN number must be exactly 10 characters.")
-                        else:
-                            st.session_
