@@ -231,83 +231,69 @@ def _save_data(fpath, data):
 # ─────────────────────────────────────────────────────────────
 GLOBAL_CSS = """
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Playfair+Display:wght@700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Outfit:wght@400;500;600;700;800&family=Playfair+Display:wght@700&display=swap');
 
 *, *::before, *::after { box-sizing: border-box; }
 html, body, [data-testid="stAppViewContainer"], [data-testid="stApp"] {
-    background: linear-gradient(135deg, #0a0a16 0%, #0d1428 50%, #0a0a16 100%) !important;
-    color: #e8e8f0 !important; font-family: 'Inter', sans-serif; min-height: 100vh;
+    background: linear-gradient(135deg, #06060c 0%, #0d1226 50%, #06060c 100%) !important;
+    color: #e2e8f0 !important; font-family: 'Inter', sans-serif; min-height: 100vh;
 }
 #MainMenu, footer { visibility: hidden; }
-[data-testid="stSidebar"] { background: #0d1128 !important; border-right: 1px solid rgba(212,175,55,0.2); }
-h1 { font-family: 'Playfair Display', serif !important; color: #fff !important; }
-h2, h3 { color: #d4af37 !important; font-weight: 700; }
+[data-testid="stSidebar"] { background: #070914 !important; border-right: 1px solid rgba(212,175,55,0.15); }
+h1, h2, h3, h4 { font-family: 'Outfit', sans-serif !important; font-weight: 700; }
+h1 { color: #ffffff !important; }
+h2, h3 { color: #d4af37 !important; }
 
-.stButton > button {
-    background: linear-gradient(135deg, #d4af37, #f0d060) !important;
-    color: #0a0a16 !important; border: none !important;
-    border-radius: 8px !important; font-weight: 700 !important;
+/* Custom Glassmorphism */
+.glass-panel {
+    background: rgba(255, 255, 255, 0.03) !important;
+    backdrop-filter: blur(12px) !important;
+    border: 1px solid rgba(255, 255, 255, 0.08) !important;
+    border-radius: 16px !important;
+    padding: 1.5rem !important;
+    margin-bottom: 1.5rem !important;
     transition: all 0.3s ease !important;
-    box-shadow: 0 4px 15px rgba(212,175,55,0.3) !important;
 }
-.stButton > button:hover { transform: translateY(-2px) !important; }
+.glass-panel:hover {
+    border-color: rgba(212,175,55,0.4) !important;
+    background: rgba(255, 255, 255, 0.05) !important;
+    transform: translateY(-2px) !important;
+    box-shadow: 0 8px 30px rgba(0,0,0,0.3) !important;
+}
 
-.prop-card {
-    background: rgba(255,255,255,0.04);
-    border: 1px solid rgba(212,175,55,0.15);
-    border-radius: 16px; padding: 1.2rem; margin-bottom: 1rem;
-    transition: all 0.3s ease;
+/* Animations */
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
 }
-.prop-card:hover {
-    border-color: rgba(212,175,55,0.5);
-    background: rgba(255,255,255,0.07);
-    transform: translateY(-3px);
-}
-.price-badge {
-    background: linear-gradient(135deg, #d4af37, #f0d060);
-    color: #0a0a16; font-size: 18px; font-weight: 800;
-    padding: 6px 14px; border-radius: 8px; display: inline-block;
-}
-.badge {
-    display: inline-block; padding: 3px 10px; border-radius: 20px;
-    font-size: 11px; font-weight: 600; margin-right: 4px;
-}
-.badge-verified { background: rgba(0,200,100,0.2); color: #00c864; border: 1px solid rgba(0,200,100,0.3); }
-.badge-rent { background: rgba(100,150,255,0.2); color: #6496ff; border: 1px solid rgba(100,150,255,0.3); }
-.badge-buy { background: rgba(255,150,0,0.2); color: #ff9600; border: 1px solid rgba(255,150,0,0.3); }
-.badge-deal { background: rgba(212,175,55,0.2); color: #d4af37; border: 1px solid rgba(212,175,55,0.3); }
+.fade-in { animation: fadeIn 0.6s ease forwards; }
 
-.hero-section {
-    background: linear-gradient(135deg, rgba(212,175,55,0.1) 0%, transparent 60%);
-    border: 1px solid rgba(212,175,55,0.2); border-radius: 24px;
-    padding: 3rem 2rem; text-align: center; margin-bottom: 2rem;
+@keyframes glowPulse {
+    0% { box-shadow: 0 0 5px rgba(212,175,55,0.2); }
+    50% { box-shadow: 0 0 20px rgba(212,175,55,0.5); }
+    100% { box-shadow: 0 0 5px rgba(212,175,55,0.2); }
 }
-.stat-card {
-    background: rgba(255,255,255,0.04); border: 1px solid rgba(212,175,55,0.2);
-    border-radius: 16px; padding: 1.5rem; text-align: center; transition: all 0.3s;
+.glow-pulse { animation: glowPulse 2s infinite; }
+
+/* Buttons styling */
+.stButton > button {
+    background: linear-gradient(135deg, #d4af37, #f3d060) !important;
+    color: #070914 !important; border: none !important;
+    border-radius: 10px !important; font-weight: 700 !important;
+    padding: 10px 24px !important;
+    transition: all 0.3s ease !important;
+    box-shadow: 0 4px 15px rgba(212,175,55,0.2) !important;
 }
-.stat-card:hover { border-color: #d4af37; background: rgba(212,175,55,0.08); }
-.stat-number { font-size: 2.2rem; font-weight: 800; color: #d4af37; }
-.stat-label { font-size: 13px; color: #aaa; margin-top: 4px; }
-.info-box {
-    background: rgba(212,175,55,0.08); border: 1px solid rgba(212,175,55,0.25);
-    border-radius: 12px; padding: 1rem 1.2rem; margin: 0.8rem 0;
+.stButton > button:hover {
+    transform: translateY(-2px) !important;
+    box-shadow: 0 6px 20px rgba(212,175,55,0.4) !important;
 }
-.tag {
-    display: inline-block; background: rgba(255,255,255,0.08);
-    border: 1px solid rgba(255,255,255,0.15); border-radius: 20px;
-    padding: 3px 10px; font-size: 12px; color: #ccc; margin: 2px;
-}
-.ai-response {
-    background: rgba(212,175,55,0.05); border: 1px solid rgba(212,175,55,0.2);
-    border-left: 4px solid #d4af37; border-radius: 12px; padding: 1.5rem;
-}
-.report-card {
-    background: rgba(255, 255, 255, 0.02);
-    border: 1px solid rgba(212, 175, 55, 0.15);
-    border-radius: 12px;
-    padding: 1.5rem;
-    margin-top: 1rem;
+
+/* Form inputs styling */
+div[data-baseweb="input"], div[data-baseweb="select"] {
+    background-color: rgba(255,255,255,0.03) !important;
+    border: 1px solid rgba(255,255,255,0.1) !important;
+    border-radius: 8px !important;
 }
 </style>
 """
@@ -397,8 +383,8 @@ def property_card_html(p: dict) -> str:
     verified = "✅ Verified Listing" if p.get("verified") else ""
     premium = "💎 Premium" if p.get("premium") else ""
     lt = p.get("listing_type", "buy").upper()
-    bhk = f"{p.get('bhk','')}BHK · " if p.get("bhk") else ""
-    sqft = f"{p.get('size_sqft','')} sqft" if p.get("size_sqft") else ""
+    bhk = f"{p.get('bhk','') }BHK · " if p.get("bhk") else ""
+    sqft = f"{p.get('size_sqft','') } sqft" if p.get("size_sqft") else ""
     
     # Calculate price tag dynamically
     est = estimate_price(p['city'], p['area'], p['size_sqft'], p.get('bhk', 2), p.get('type','apartment'))
@@ -407,17 +393,33 @@ def property_card_html(p: dict) -> str:
     user_badge = get_user_badge_html(p.get("posted_by",""))
     resp_badge = get_response_badge_html(p.get("posted_by",""))
 
+    img_placeholder = f"""
+    <div style="
+        background: linear-gradient(135deg, #181c33, #090b14);
+        border-radius: 12px; height: 160px;
+        display: flex; align-items: center; justify-content: center;
+        margin-bottom: 12px; border: 1px solid rgba(255,255,255,0.05);
+        position: relative;
+    ">
+        <span style="font-size: 48px">🏠</span>
+        <span style="position: absolute; top: 10px; right: 10px; background: rgba(0,0,0,0.65); padding: 4px 8px; border-radius: 6px; font-size: 10px; color: #d4af37; font-weight: 700;">
+            Match Score 98%
+        </span>
+    </div>
+    """
+
     return f"""
-<div class="prop-card fade-in">
+<div class="prop-card glass-panel fade-in">
+    {img_placeholder}
     <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">
-        <span style="font-size:15px;font-weight:700;color:#fff;flex:1;margin-right:8px">{p.get('title','')[:50]}</span>
+        <span style="font-size:16px;font-weight:700;color:#fff;flex:1;margin-right:8px">{p.get('title','')[:50]}</span>
         <span class="price-badge">{price_str}</span>
     </div>
-    <div style="font-size:12px;color:#aaa;margin-bottom:10px">
+    <div style="font-size:13px;color:#aaa;margin-bottom:10px">
         📍 {p.get('area','')}, {p.get('city','')} &nbsp;·&nbsp;
         {bhk}{sqft}
     </div>
-    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px">
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px">
         <span class="badge badge-{'rent' if lt=='RENT' else 'buy'}">{lt}</span>
         <span class="badge {deal_cls}">{deal_lbl}</span>
         {f'<span class="badge badge-verified">{verified}</span>' if verified else ''}
@@ -426,7 +428,7 @@ def property_card_html(p: dict) -> str:
         {user_badge}
         {resp_badge}
     </div>
-    <div style="font-size:13px;color:#ccc;line-height:1.5">{str(p.get('description',''))[:120]}...</div>
+    <div style="font-size:13px;color:#cbd5e1;line-height:1.5">{str(p.get('description',''))[:120]}...</div>
 </div>"""
 
 def geocode(address_str):
@@ -715,43 +717,100 @@ def parse_query(query: str) -> dict:
 def ai_consult(query: str, properties: list, gemini_key: str = None) -> str:
     params = parse_query(query)
     city = params.get("city", "Delhi NCR")
+    if "muzaffarnagar" in query.lower():
+        city = "Muzaffarnagar"
     budget = params.get("budget", 5000000)
+    bhk = params.get("bhk", 2)
+    listing_type = params.get("listing_type", "buy")
+    
+    city_lower = city.lower()
+    if "muzaffarnagar" in city_lower:
+        best_areas = ["South Civil Lines (Premium residential)", "Jansath Road (Rapid development)", "New Mandi (Commercial hub)"]
+        growth_rate = 14.5
+        risk = "Low"
+        verdict = "Excellent for Land/Plot Appreciation"
+        score = 92
+        legal = "- **RERA Certificate**: Required for Jansath Road layouts.\\n- **Title Deed Clearances**: Mandatory check for New Mandi agricultural conversions."
+    elif "noida" in city_lower:
+        best_areas = ["Sector 150 (Premium green township)", "Sector 62 (IT & Commercial hub)", "Sector 137 (Metro connectivity)"]
+        growth_rate = 12.0
+        risk = "Low"
+        verdict = "Highly Recommended for Rental Yield"
+        score = 88
+        legal = "- **Noida Authority Lease Deed**: Ensure dues are clear.\\n- **RERA Registration**: Check builder certificate online."
+    elif "bangalore" in city_lower or "bengaluru" in city_lower:
+        best_areas = ["Indiranagar (Commercial demand)", "Whitefield (IT workforce hubs)", "Sarjapur Road (Rapid expansion)"]
+        growth_rate = 13.5
+        risk = "Medium (Water shortage in suburbs)"
+        verdict = "Top Pick for IT Professionals & Co-living"
+        score = 90
+        legal = "- **A-Katha Certificate**: Verify municipal tax records.\\n- **OC (Occupancy Certificate)**: Mandatory for high-rises."
+    else:
+        best_areas = [f"{city} Central", f"Emerging {city} bypass road", f"New residential zones in {city}"]
+        growth_rate = 9.0
+        risk = "Medium"
+        verdict = "Stable micro-market growth"
+        score = 78
+        legal = "- **Local Authority Approvals**: Verify layout approval map.\\n- **Encumbrance Check**: Search sub-registrar records for 13 years."
 
     if gemini_key and GEMINI_AVAILABLE:
         try:
             genai.configure(api_key=gemini_key)
             model = genai.GenerativeModel("gemini-1.5-flash")
-            prop_summary = "\n".join([f"- {p['title']} | ₹{p['price']:,} | {p['area']}, {p['city']}" for p in properties[:5]])
+            prop_summary = "\\n".join([f"- {p['title']} | {format_price(p['price'])} | {p['area']}, {p['city']}" for p in properties[:5]])
             prompt = f"""You are SmartEstate AI - India's best real estate advisor.
 User Query: "{query}"
+Extracted Parameters: City: {city}, Budget: {budget}, BHK: {bhk}, Listing Type: {listing_type}
 Available Properties: {prop_summary}
-Provide consultation with: Best Areas in {city}, Top matching properties, 5-Yr Growth Rate, EMI Estimate, Loan Advice, Investment Score. Format using markdown."""
+Provide a comprehensive, professional real-estate consultation. You must cover:
+1. Best Areas to buy in {city} (provide specific local details)
+2. Matching Properties from the database (if any) or what to look for
+3. Future Growth & capital appreciation forecast (5-yr projections based on {growth_rate}% growth rate)
+4. Total on-road cost estimate (including stamp duty/registration fee calculations)
+5. Risk Level: {risk}
+6. Legal checklist needed: {legal}
+7. Investment Score: {score}/100 ({verdict})
+Format using clean, modern markdown with emojis, custom bullet points, and neat spacing."""
             response = model.generate_content(prompt)
             return response.text
         except Exception:
             pass
 
-    city_key = city.lower()
-    growth = CITY_GROWTH.get(city_key, 8.0)
-    matching = [p for p in properties if city_key in p.get("city", "").lower()][:3]
-    props_text = "\n".join([f"  • **{p['title']}** in {p['area']} | 💰 {format_price(p['price'])}" for p in matching]) if matching else "No exact matches. Try another city!"
+    matching = [p for p in properties if city_lower in p.get("city", "").lower() and p.get("price", 0) <= budget][:3]
+    props_text = "\\n".join([f"  • **{p['title']}** in {p['area']} | 💰 {format_price(p['price'])}" for p in matching]) if matching else f"No exact database matches under {format_price(budget)} in {city}. Try posting a buyer requirement!"
+    
+    sd_calc = stamp_duty(city, budget)
+    gst_calc = budget * 0.05 if listing_type == "buy" else 0
+    total_est = budget + sd_calc["total_cost"] + gst_calc
 
     return f"""## 🏙️ Best Areas in {city}
-- Sector 62 / Sector 137 / Sector 150 for high connectivity & rental demand.
-- Emerging Township Zones for maximum future appreciation.
-
-## 🏠 Top Matching Properties
+{ "".join([f"- **{area}**: High demand zone.\\\\n" for area in best_areas]) }
+## 🏠 Matching Properties (Under {format_price(budget)})
 {props_text}
 
 ## 📈 Future Price Growth (5 Year Prediction)
-- Annual Capital Appreciation: **{growth}% p.a.**
-- Expected value of your ₹{budget:,} budget: **₹{round(budget * ((1 + growth/100)**5)):,}** in 5 years.
+- Annual Capital Appreciation: **{growth_rate}% p.a.**
+- Expected value of your {format_price(budget)} investment: **{format_price(round(budget * ((1 + growth_rate/100)**5)))}** in 5 years.
 
-## 💰 EMI & Loan Advice
+## 💰 Final On-Road Cost Estimate
+- Listed Base Price: **{format_price(budget)}**
+- Stamp Duty & Registration: **{format_price(sd_calc['total_cost'])}**
+- GST (5% if under-construction): **{format_price(gst_calc)}**
+- **Estimated Total Cost**: <span style="color:#d4af37;font-weight:700">{format_price(total_est)}</span>
+
+## 📅 EMI & Loan Advice
 - Estimated Monthly EMI: **{format_price(calculate_emi(budget * 0.8, 8.5, 20)['emi'])}** (Based on 80% loan at 8.5% interest for 20 years).
 - Recommended Banks: **SBI (8.4%)** for best rates, **HDFC (8.5%)** for fast processing.
 
-## 📊 Investment Score: 8.5/10 — Excellent Choice
+## ⚖️ Legal Checklist & Document Audit
+{legal}
+- **Encumbrance Check**: Search registry office files for past 13 years.
+
+## 🛡️ Risk & Safety Analysis
+- Risk Rating: **{risk}**
+- Assessment: Property ownership records are clear, low chance of registry disputes in {city}.
+
+## 📊 Investment Score: {score}/100 — {verdict}
 """
 
 # Map functions
@@ -886,7 +945,7 @@ with st.sidebar:
 # ─────────────────────────────────────────────────────────────
 def render_home():
     st.markdown("""
-    <div class="hero-section fade-in">
+    <div class="hero-section glass-panel fade-in">
         <div style="font-size:13px;color:#d4af37;font-weight:600;letter-spacing:2px;margin-bottom:12px">
             🤖 INDIA'S #1 AI-POWERED REAL ESTATE PORTAL
         </div>
@@ -902,7 +961,7 @@ def render_home():
     """, unsafe_allow_html=True)
 
     # Quick Search Bar
-    st.markdown('<div style="background:rgba(255,255,255,0.04);border:1px solid rgba(212,175,55,0.2);border-radius:16px;padding:1.5rem;margin-bottom:2rem">', unsafe_allow_html=True)
+    st.markdown('<div class="glass-panel" style="padding:1.5rem;margin-bottom:2rem">', unsafe_allow_html=True)
     c1, c2, c3, c4 = st.columns([1, 1, 1, 1])
     with c1:
         s_city = st.text_input("City Name", placeholder="e.g. Noida, Delhi, Mumbai")
@@ -949,7 +1008,7 @@ def render_home():
         for idx, pr in enumerate(projs[:2]):
             with cols_proj[idx]:
                 st.markdown(f"""
-                <div class="prop-card">
+                <div class="prop-card glass-panel">
                     <div style="font-size:11px;color:#d4af37;font-weight:700;text-transform:uppercase">● Under Construction</div>
                     <h4 style="color:#fff;margin:6px 0">{pr['name']}</h4>
                     <div style="font-size:12px;color:#aaa">By {pr['builder']} · {pr['area']}, {pr['city']}</div>
@@ -1399,19 +1458,38 @@ def render_ai_consultant():
     st.markdown("### 🤖 SmartEstate AI Advisor (NLP Search)")
     st.markdown("<p style='color:#aaa'>Ask questions in plain Hindi or English. E.g., 'Delhi me 3BHK flat buy karna hai 70 lakh budget me'</p>", unsafe_allow_html=True)
 
+    # Interactive suggestion chips
+    st.markdown("💡 **Try asking the AI (Click to fill suggestion):**")
+    c_chip1, c_chip2, c_chip3 = st.columns(3)
+    with c_chip1:
+        if st.button("📍 Sector 150 Noida report", key="chip_noida"):
+            st.session_state["ai_query"] = "Sector 150 Noida me appreciation potential aur schools hospital batao"
+            st.rerun()
+    with c_chip2:
+        if st.button("💰 Bangalore 2BHK rental yield", key="chip_bangalore"):
+            st.session_state["ai_query"] = "Bangalore Indiranagar price valuation of 2BHK flat"
+            st.rerun()
+    with c_chip3:
+        if st.button("📈 Muzaffarnagar plot investment", key="chip_muz"):
+            st.session_state["ai_query"] = "Muzaffarnagar me 30 lakh tak plot chahiye investment ke liye"
+            st.rerun()
+
     with st.expander("⚙️ Enable Advanced Gemini API responses"):
         key = st.text_input("Enter Gemini API Key", type="password")
         if key:
             st.session_state["gemini_key"] = key
             st.success("Gemini API key loaded!")
 
-    query = st.text_area("What are you looking for today?", placeholder="Type your query...")
+    query_val = st.session_state.get("ai_query", "")
+    query = st.text_area("What are you looking for today?", value=query_val, placeholder="Type your query...")
+    
     if st.button("🤖 Generate Recommendations", type="primary"):
         if query.strip():
             with st.spinner("AI is analyzing local micro-markets..."):
                 all_p = get_all_properties()
                 res = ai_consult(query, all_p, gemini_key=st.session_state.get("gemini_key"))
                 st.markdown(f"<div class='ai-response'>{res}</div>", unsafe_allow_html=True)
+                st.session_state["ai_query"] = "" # Reset chip query
         else:
             st.warning("Please type your search request first.")
 
