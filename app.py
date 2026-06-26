@@ -190,7 +190,7 @@ CITY_ALIASES = {
     "kolkata":"kolkata","calcutta":"kolkata",
     "gurugram":"gurugram","gurgaon":"gurugram",
     "noida":"noida","greater noida":"greater noida",
-    "ahmedabad":"ahmedabad","surat":"surat","badodara":"vadodara",
+    "ahmedabad":"ahmedabad","surat":"surat","vadodara":"vadodara",
     "jaipur":"jaipur","jodhpur":"jodhpur","udaipur":"udaipur",
     "lucknow":"lucknow","kanpur":"kanpur","agra":"agra",
     "varanasi":"varanasi","prayagraj":"prayagraj","allahabad":"prayagraj",
@@ -211,6 +211,40 @@ CITY_ALIASES = {
 # ── GEOCODING ─────────────────────────────────────────────────
 @st.cache_data(ttl=600, show_spinner=False)
 def geocode_address(address_str):
+    api_key = "48d9b8672cad42bcaa0eb9159876f026"
+    # Try Geoapify first
+    try:
+        url = f"https://api.geoapify.com/v1/geocode/search?text={urllib.parse.quote(address_str + ', India')}&apiKey={api_key}"
+        req = urllib.request.Request(url, headers={"User-Agent": "gharmool_app_v4"})
+        with urllib.request.urlopen(req, timeout=8) as response:
+            import json
+            data = json.loads(response.read().decode("utf-8"))
+            if data.get("features"):
+                feat = data["features"][0]
+                props = feat["properties"]
+                geom = feat["geometry"]
+                lat = geom["coordinates"][1]
+                lon = geom["coordinates"][0]
+                full_address = props.get("formatted", address_str)
+                raw_address = {
+                    "city": props.get("city", ""),
+                    "town": props.get("town", ""),
+                    "village": props.get("village", ""),
+                    "suburb": props.get("suburb", ""),
+                    "neighbourhood": props.get("neighbourhood", ""),
+                    "road": props.get("street", ""),
+                    "state": props.get("state", ""),
+                    "postcode": props.get("postcode", "N/A")
+                }
+                raw = {
+                    "address": raw_address,
+                    "display_name": full_address
+                }
+                return {"lat": lat, "lon": lon, "full_address": full_address, "raw": raw}
+    except Exception:
+        pass
+
+    # Try ArcGIS second
     try:
         geo = ArcGIS(user_agent="gharmool_arcgis_v4")
         loc = geo.geocode(address_str + ", India", timeout=10)
@@ -220,6 +254,7 @@ def geocode_address(address_str):
     except Exception:
         pass
         
+    # Fallback to Nominatim
     try:
         geo = Nominatim(user_agent="gharmool_nominatim_v4")
         loc = geo.geocode(address_str + ", India", timeout=10, language="en")
@@ -232,6 +267,37 @@ def geocode_address(address_str):
 
 @st.cache_data(ttl=600, show_spinner=False)
 def reverse_geocode(lat, lon):
+    api_key = "48d9b8672cad42bcaa0eb9159876f026"
+    # Try Geoapify first
+    try:
+        url = f"https://api.geoapify.com/v1/geocode/reverse?lat={lat}&lon={lon}&apiKey={api_key}"
+        req = urllib.request.Request(url, headers={"User-Agent": "gharmool_app_rev_v4"})
+        with urllib.request.urlopen(req, timeout=8) as response:
+            import json
+            data = json.loads(response.read().decode("utf-8"))
+            if data.get("features"):
+                feat = data["features"][0]
+                props = feat["properties"]
+                full_address = props.get("formatted", f"{lat}, {lon}")
+                raw_address = {
+                    "city": props.get("city", ""),
+                    "town": props.get("town", ""),
+                    "village": props.get("village", ""),
+                    "suburb": props.get("suburb", ""),
+                    "neighbourhood": props.get("neighbourhood", ""),
+                    "road": props.get("street", ""),
+                    "state": props.get("state", ""),
+                    "postcode": props.get("postcode", "N/A")
+                }
+                raw = {
+                    "address": raw_address,
+                    "display_name": full_address
+                }
+                return {"full_address": full_address, "raw": raw}
+    except Exception:
+        pass
+
+    # Try ArcGIS second
     try:
         geo = ArcGIS(user_agent="gharmool_arcgis_rev_v4")
         loc = geo.reverse((lat, lon), timeout=10)
@@ -240,6 +306,7 @@ def reverse_geocode(lat, lon):
     except Exception:
         pass
         
+    # Fallback to Nominatim
     try:
         geo = Nominatim(user_agent="gharmool_nominatim_rev_v4")
         loc = geo.reverse((lat, lon), timeout=10, language="en")
