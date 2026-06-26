@@ -9,6 +9,7 @@ import json
 import os
 import re
 import hashlib
+import requests
 from datetime import datetime
 
 # Optional imports with graceful fallbacks
@@ -38,6 +39,104 @@ try:
     GEOPY_OK = True
 except ImportError:
     GEOPY_OK = False
+
+# ─────────────────────────────────────────────────────────────
+# Google Maps Location Intelligence Helpers
+# ─────────────────────────────────────────────────────────────
+def haversine_distance(lat1, lon1, lat2, lon2):
+    # Radius of earth in kilometers
+    r = 6371.0
+    phi1 = np.radians(lat1)
+    phi2 = np.radians(lat2)
+    delta_phi = np.radians(lat2 - lat1)
+    delta_lambda = np.radians(lon2 - lon1)
+    a = np.sin(delta_phi / 2)**2 + np.cos(phi1) * np.cos(phi2) * np.sin(delta_lambda / 2)**2
+    c = 2 * np.arctan2(np.sqrt(a), np.sqrt(1 - a))
+    return r * c
+
+def geocode_google(address_str, api_key=None):
+    if not api_key:
+        return geocode(address_str)
+    try:
+        url = "https://maps.googleapis.com/maps/api/geocode/json"
+        params = {"address": address_str, "key": api_key}
+        res = requests.get(url, params=params).json()
+        if res.get("status") == "OK" and res.get("results"):
+            loc = res["results"][0]["geometry"]["location"]
+            return {"lat": loc["lat"], "lng": loc["lng"]}
+    except Exception:
+        pass
+    return geocode(address_str)
+
+def reverse_geocode_google(lat, lng, api_key=None):
+    if not api_key:
+        return {}
+    try:
+        url = "https://maps.googleapis.com/maps/api/geocode/json"
+        params = {"latlng": f"{lat},{lng}", "key": api_key}
+        res = requests.get(url, params=params).json()
+        if res.get("status") == "OK" and res.get("results"):
+            components = res["results"][0]["address_components"]
+            info = {}
+            for comp in components:
+                types = comp.get("types", [])
+                if "sublocality_level_1" in types or "sublocality" in types:
+                    info["area"] = comp["long_name"]
+                elif "locality" in types:
+                    info["city"] = comp["long_name"]
+                elif "administrative_area_level_1" in types:
+                    info["state"] = comp["long_name"]
+                elif "postal_code" in types:
+                    info["pincode"] = comp["long_name"]
+            return info
+    except Exception:
+        pass
+    return {}
+
+def get_places_autocomplete(search_input, api_key=None):
+    if not api_key or not search_input.strip():
+        return []
+    try:
+        url = "https://maps.googleapis.com/maps/api/place/autocomplete/json"
+        params = {
+            "input": search_input,
+            "key": api_key,
+            "components": "country:in"  # Limit suggestions to India
+        }
+        res = requests.get(url, params=params).json()
+        if res.get("status") == "OK" and res.get("predictions"):
+            return [p["description"] for p in res["predictions"]]
+    except Exception:
+        pass
+    return []
+
+def get_nearby_places(lat, lng, place_type, api_key=None):
+    if not api_key:
+        return []
+    try:
+        url = "https://maps.googleapis.com/maps/api/place/nearbysearch/json"
+        params = {
+            "location": f"{lat},{lng}",
+            "radius": "2000",
+            "type": place_type,
+            "key": api_key
+        }
+        res = requests.get(url, params=params).json()
+        if res.get("status") == "OK" and res.get("results"):
+            places = []
+            for r in res["results"][:3]:  # Top 3 results
+                plat = r["geometry"]["location"]["lat"]
+                plng = r["geometry"]["location"]["lng"]
+                dist = haversine_distance(lat, lng, plat, plng)
+                places.append({
+                    "name": r.get("name", ""),
+                    "rating": r.get("rating", 0),
+                    "distance": round(dist, 1)
+                })
+            return places
+    except Exception:
+        pass
+    return []
 
 # ─────────────────────────────────────────────────────────────
 # Directory & DB Initialization
@@ -334,6 +433,8 @@ def format_price(price: float, listing_type: str = "buy") -> str:
     return s
 
 def get_deal_verdict(listed_price, est_price):
+    if not est_price or est_price <= 0:
+        return "🟡 Fair Price", "badge-deal"
     diff = ((listed_price - est_price) / est_price) * 100
     if diff < -5:
         return "🟢 Great Deal", "badge-verified"
@@ -345,10 +446,13 @@ def get_deal_verdict(listed_price, est_price):
 def detect_duplicates(title, area, size_sqft):
     props = get_all_properties(approved_only=False)
     for p in props:
-        # Check matching area and overlapping size (within 5% range)
-        size_diff = abs(p["size_sqft"] - size_sqft) / size_sqft
-        if p["area"].lower() == area.lower() and size_diff < 0.05:
-            return True, p["id"]
+        p_area = p.get("area")
+        p_size = p.get("size_sqft")
+        if not p_area or not p_size or not size_sqft:
+            continue
+        size_diff = abs(p_size - size_sqft) / size_sqft
+        if p_area.lower() == area.lower() and size_diff < 0.05:
+            return True, p.get("id")
     return False, None
 
 def get_user_badge_html(user_id: str) -> str:
@@ -387,8 +491,8 @@ def property_card_html(p: dict) -> str:
     sqft = f"{p.get('size_sqft','')} sqft" if p.get("size_sqft") else ""
     
     # Calculate price tag dynamically
-    est = estimate_price(p['city'], p['area'], p['size_sqft'], p.get('bhk', 2), p.get('type','apartment'))
-    deal_lbl, deal_cls = get_deal_verdict(p['price'], est['estimated_price'])
+    est = estimate_price(p.get('city', 'Delhi'), p.get('area', ''), p.get('size_sqft', 1000), p.get('bhk', 2), p.get('type','apartment'))
+    deal_lbl, deal_cls = get_deal_verdict(p.get('price', 0), est.get('estimated_price', 0))
     
     user_badge = get_user_badge_html(p.get("posted_by",""))
     resp_badge = get_response_badge_html(p.get("posted_by",""))
@@ -418,9 +522,9 @@ def property_card_html(p: dict) -> str:
         f'<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px">'
         f'<span class="badge badge-{"rent" if lt=="RENT" else "buy"}">{lt}</span>'
         f'<span class="badge {deal_cls}">{deal_lbl}</span>'
-        f'{f"<span class=\\\"badge badge-verified\\\">{verified}</span>" if verified else ""}'
+        f'{f"<span class=\"badge badge-verified\">{verified}</span>" if verified else ""}'
         f'<span class="badge" style="background:rgba(255,255,255,0.05);color:#ccc">{p.get("furnishing", "").replace("-", " ").title()}</span>'
-        f'{f"<span class=\\\"badge\\\" style=\\\"background:rgba(212,175,55,0.2);color:#d4af37\\\">{premium}</span>" if premium else ""}'
+        f'{f"<span class=\"badge\" style=\"background:rgba(212,175,55,0.2);color:#d4af37\">{premium}</span>" if premium else ""}'
         f'{user_badge}'
         f'{resp_badge}'
         f'</div>'
@@ -715,100 +819,43 @@ def parse_query(query: str) -> dict:
 def ai_consult(query: str, properties: list, gemini_key: str = None) -> str:
     params = parse_query(query)
     city = params.get("city", "Delhi NCR")
-    if "muzaffarnagar" in query.lower():
-        city = "Muzaffarnagar"
     budget = params.get("budget", 5000000)
-    bhk = params.get("bhk", 2)
-    listing_type = params.get("listing_type", "buy")
-    
-    city_lower = city.lower()
-    if "muzaffarnagar" in city_lower:
-        best_areas = ["South Civil Lines (Premium residential)", "Jansath Road (Rapid development)", "New Mandi (Commercial hub)"]
-        growth_rate = 14.5
-        risk = "Low"
-        verdict = "Excellent for Land/Plot Appreciation"
-        score = 92
-        legal = "- **RERA Certificate**: Required for Jansath Road layouts.\\n- **Title Deed Clearances**: Mandatory check for New Mandi agricultural conversions."
-    elif "noida" in city_lower:
-        best_areas = ["Sector 150 (Premium green township)", "Sector 62 (IT & Commercial hub)", "Sector 137 (Metro connectivity)"]
-        growth_rate = 12.0
-        risk = "Low"
-        verdict = "Highly Recommended for Rental Yield"
-        score = 88
-        legal = "- **Noida Authority Lease Deed**: Ensure dues are clear.\\n- **RERA Registration**: Check builder certificate online."
-    elif "bangalore" in city_lower or "bengaluru" in city_lower:
-        best_areas = ["Indiranagar (Commercial demand)", "Whitefield (IT workforce hubs)", "Sarjapur Road (Rapid expansion)"]
-        growth_rate = 13.5
-        risk = "Medium (Water shortage in suburbs)"
-        verdict = "Top Pick for IT Professionals & Co-living"
-        score = 90
-        legal = "- **A-Katha Certificate**: Verify municipal tax records.\\n- **OC (Occupancy Certificate)**: Mandatory for high-rises."
-    else:
-        best_areas = [f"{city} Central", f"Emerging {city} bypass road", f"New residential zones in {city}"]
-        growth_rate = 9.0
-        risk = "Medium"
-        verdict = "Stable micro-market growth"
-        score = 78
-        legal = "- **Local Authority Approvals**: Verify layout approval map.\\n- **Encumbrance Check**: Search sub-registrar records for 13 years."
 
     if gemini_key and GEMINI_AVAILABLE:
         try:
             genai.configure(api_key=gemini_key)
             model = genai.GenerativeModel("gemini-1.5-flash")
-            prop_summary = "\\n".join([f"- {p['title']} | {format_price(p['price'])} | {p['area']}, {p['city']}" for p in properties[:5]])
+            prop_summary = "\n".join([f"- {p['title']} | ₹{p['price']:,} | {p['area']}, {p['city']}" for p in properties[:5]])
             prompt = f"""You are SmartEstate AI - India's best real estate advisor.
 User Query: "{query}"
-Extracted Parameters: City: {city}, Budget: {budget}, BHK: {bhk}, Listing Type: {listing_type}
 Available Properties: {prop_summary}
-Provide a comprehensive, professional real-estate consultation. You must cover:
-1. Best Areas to buy in {city} (provide specific local details)
-2. Matching Properties from the database (if any) or what to look for
-3. Future Growth & capital appreciation forecast (5-yr projections based on {growth_rate}% growth rate)
-4. Total on-road cost estimate (including stamp duty/registration fee calculations)
-5. Risk Level: {risk}
-6. Legal checklist needed: {legal}
-7. Investment Score: {score}/100 ({verdict})
-Format using clean, modern markdown with emojis, custom bullet points, and neat spacing."""
+Provide consultation with: Best Areas in {city}, Top matching properties, 5-Yr Growth Rate, EMI Estimate, Loan Advice, Investment Score. Format using markdown."""
             response = model.generate_content(prompt)
             return response.text
         except Exception:
             pass
 
-    matching = [p for p in properties if city_lower in p.get("city", "").lower() and p.get("price", 0) <= budget][:3]
-    props_text = "\\n".join([f"  • **{p['title']}** in {p['area']} | 💰 {format_price(p['price'])}" for p in matching]) if matching else f"No exact database matches under {format_price(budget)} in {city}. Try posting a buyer requirement!"
-    
-    sd_calc = stamp_duty(city, budget)
-    gst_calc = budget * 0.05 if listing_type == "buy" else 0
-    total_est = budget + sd_calc["total_cost"] + gst_calc
+    city_key = city.lower()
+    growth = CITY_GROWTH.get(city_key, 8.0)
+    matching = [p for p in properties if city_key in p.get("city", "").lower()][:3]
+    props_text = "\n".join([f"  • **{p['title']}** in {p['area']} | 💰 {format_price(p['price'])}" for p in matching]) if matching else "No exact matches. Try another city!"
 
     return f"""## 🏙️ Best Areas in {city}
-{ "".join([f"- **{area}**: High demand zone.\\\\n" for area in best_areas]) }
-## 🏠 Matching Properties (Under {format_price(budget)})
+- Sector 62 / Sector 137 / Sector 150 for high connectivity & rental demand.
+- Emerging Township Zones for maximum future appreciation.
+
+## 🏠 Top Matching Properties
 {props_text}
 
 ## 📈 Future Price Growth (5 Year Prediction)
-- Annual Capital Appreciation: **{growth_rate}% p.a.**
-- Expected value of your {format_price(budget)} investment: **{format_price(round(budget * ((1 + growth_rate/100)**5)))}** in 5 years.
+- Annual Capital Appreciation: **{growth}% p.a.**
+- Expected value of your ₹{budget:,} budget: **₹{round(budget * ((1 + growth/100)**5)):,}** in 5 years.
 
-## 💰 Final On-Road Cost Estimate
-- Listed Base Price: **{format_price(budget)}**
-- Stamp Duty & Registration: **{format_price(sd_calc['total_cost'])}**
-- GST (5% if under-construction): **{format_price(gst_calc)}**
-- **Estimated Total Cost**: <span style="color:#d4af37;font-weight:700">{format_price(total_est)}</span>
-
-## 📅 EMI & Loan Advice
+## 💰 EMI & Loan Advice
 - Estimated Monthly EMI: **{format_price(calculate_emi(budget * 0.8, 8.5, 20)['emi'])}** (Based on 80% loan at 8.5% interest for 20 years).
 - Recommended Banks: **SBI (8.4%)** for best rates, **HDFC (8.5%)** for fast processing.
 
-## ⚖️ Legal Checklist & Document Audit
-{legal}
-- **Encumbrance Check**: Search registry office files for past 13 years.
-
-## 🛡️ Risk & Safety Analysis
-- Risk Rating: **{risk}**
-- Assessment: Property ownership records are clear, low chance of registry disputes in {city}.
-
-## 📊 Investment Score: {score}/100 — {verdict}
+## 📊 Investment Score: 8.5/10 — Excellent Choice
 """
 
 # Map functions
@@ -861,6 +908,14 @@ with st.sidebar:
         </div>
     </div>
     """, unsafe_allow_html=True)
+
+    with st.expander("🔑 API Key Settings"):
+        gemini_key = st.text_input("Gemini API Key", type="password", value=st.session_state.get("gemini_key", ""))
+        gmaps_key = st.text_input("Google Maps API Key", type="password", value=st.session_state.get("google_maps_key", ""))
+        if gemini_key:
+            st.session_state["gemini_key"] = gemini_key
+        if gmaps_key:
+            st.session_state["google_maps_key"] = gmaps_key
 
     # Navigation Links
     pages_list = [
@@ -943,7 +998,7 @@ with st.sidebar:
 # ─────────────────────────────────────────────────────────────
 def render_home():
     st.markdown("""
-    <div class="hero-section glass-panel fade-in">
+    <div class="hero-section fade-in">
         <div style="font-size:13px;color:#d4af37;font-weight:600;letter-spacing:2px;margin-bottom:12px">
             🤖 INDIA'S #1 AI-POWERED REAL ESTATE PORTAL
         </div>
@@ -959,7 +1014,7 @@ def render_home():
     """, unsafe_allow_html=True)
 
     # Quick Search Bar
-    st.markdown('<div class="glass-panel" style="padding:1.5rem;margin-bottom:2rem">', unsafe_allow_html=True)
+    st.markdown('<div style="background:rgba(255,255,255,0.04);border:1px solid rgba(212,175,55,0.2);border-radius:16px;padding:1.5rem;margin-bottom:2rem">', unsafe_allow_html=True)
     c1, c2, c3, c4 = st.columns([1, 1, 1, 1])
     with c1:
         s_city = st.text_input("City Name", placeholder="e.g. Noida, Delhi, Mumbai")
@@ -1006,7 +1061,7 @@ def render_home():
         for idx, pr in enumerate(projs[:2]):
             with cols_proj[idx]:
                 st.markdown(f"""
-                <div class="prop-card glass-panel">
+                <div class="prop-card">
                     <div style="font-size:11px;color:#d4af37;font-weight:700;text-transform:uppercase">● Under Construction</div>
                     <h4 style="color:#fff;margin:6px 0">{pr['name']}</h4>
                     <div style="font-size:12px;color:#aaa">By {pr['builder']} · {pr['area']}, {pr['city']}</div>
@@ -1091,7 +1146,7 @@ def render_search():
                                         if r["id"] not in u_data.get("wishlist", []):
                                             u_data.setdefault("wishlist", []).append(r["id"])
                                             st.success("Added to Wishlist!")
-                                users = _load_data(USERS_FILE)
+                                _save_data(USERS_FILE, users)
                                 st.session_state["user"] = next(usr for usr in users if usr["id"] == u["id"])
                             else:
                                 st.error("Please login to save wishlist.")
@@ -1119,13 +1174,13 @@ def render_detail():
         
     st.markdown(f"""
     <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(212,175,55,0.25);border-radius:16px;padding:1.5rem;margin-bottom:1.5rem">
-        <h2>{p['title']}</h2>
-        <p style="color:#aaa">📍 {p['area']}, {p['city']}, {p['state']} — {p['pincode']}</p>
+        <h2>{p.get('title', 'Property Title')}</h2>
+        <p style="color:#aaa">📍 {p.get('area', '')}, {p.get('city', '')}, {p.get('state', '')} — {p.get('pincode', '')}</p>
         <div style="display:flex;gap:12px;margin:1rem 0">
             <span class="badge badge-verified">✅ RERA Checked</span>
-            <span class="badge" style="background:#d4af37;color:#0a0a16;font-weight:700">Listed Price: {format_price(p['price'], p.get('listing_type','buy'))}</span>
+            <span class="badge" style="background:#d4af37;color:#0a0a16;font-weight:700">Listed Price: {format_price(p.get('price', 0), p.get('listing_type','buy'))}</span>
         </div>
-        <p>{p['description']}</p>
+        <p>{p.get('description', '')}</p>
     </div>
     """, unsafe_allow_html=True)
     
@@ -1137,16 +1192,16 @@ def render_detail():
     # Tab 1: Valuation & History
     with dt1:
         st.markdown("#### 🤖 SmartEstate AI Valuation Engine")
-        est = estimate_price(p['city'], p['area'], p['size_sqft'], p.get('bhk', 2), p.get('type','apartment'))
-        inv = investment_score(p['city'], p['area'], p.get('type','apartment'), p['price'])
+        est = estimate_price(p.get('city', 'Delhi'), p.get('area', ''), p.get('size_sqft', 1000), p.get('bhk', 2), p.get('type','apartment'))
+        inv = investment_score(p.get('city', 'Delhi'), p.get('area', ''), p.get('type','apartment'), p.get('price', 0))
         
-        deal_lbl, deal_cls = get_deal_verdict(p['price'], est['estimated_price'])
+        deal_lbl, deal_cls = get_deal_verdict(p.get('price', 0), est.get('estimated_price', 0))
         
         st.markdown(f"""
         <div style="background:rgba(255,255,255,0.02);border:1px solid rgba(212,175,55,0.2);border-radius:12px;padding:1.2rem;margin-bottom:1.5rem;text-align:center">
             <span style="font-size:14px;color:#aaa">Deal Classification Verdict</span><br>
             <span style="font-size:26px;font-weight:800;color:{'#00c864' if 'Great' in deal_lbl else ('#d4af37' if 'Fair' in deal_lbl else '#ff5050')}">{deal_lbl}</span>
-            <p style="font-size:13px;color:#aaa;margin-top:5px">This property is listed at {format_price(p['price'])} compared to the AI market estimate of {format_price(est['estimated_price'])}.</p>
+            <p style="font-size:13px;color:#aaa;margin-top:5px">This property is listed at {format_price(p.get('price', 0))} compared to the AI market estimate of {format_price(est.get('estimated_price', 0))}.</p>
         </div>
         """, unsafe_allow_html=True)
 
@@ -1155,30 +1210,30 @@ def render_detail():
             st.markdown(f"""
             <div class="stat-card">
                 <div class="stat-label">AI Estimated Value</div>
-                <div class="stat-number">{format_price(est['estimated_price'])}</div>
-                <div style="font-size:12px;color:#888">Fair Market Range: {format_price(est['low'])} - {format_price(est['high'])}</div>
+                <div class="stat-number">{format_price(est.get('estimated_price', 0))}</div>
+                <div style="font-size:12px;color:#888">Fair Market Range: {format_price(est.get('low', 0))} - {format_price(est.get('high', 0))}</div>
             </div>
             """, unsafe_allow_html=True)
         with c2:
             st.markdown(f"""
             <div class="stat-card">
                 <div class="stat-label">Investment Score</div>
-                <div class="stat-number" style="color:#00c864">{inv['score'] * 10:.0f}/100</div>
-                <div style="font-size:12px;color:#aaa">{inv['verdict']}</div>
+                <div class="stat-number" style="color:#00c864">{inv.get('score', 0) * 10:.0f}/100</div>
+                <div style="font-size:12px;color:#aaa">{inv.get('verdict', '')}</div>
             </div>
             """, unsafe_allow_html=True)
         with c3:
             st.markdown(f"""
             <div class="stat-card">
                 <div class="stat-label">Rental Yield & Appreciation</div>
-                <div class="stat-number">~{inv['rental_yield_pct']}%</div>
+                <div class="stat-number">~{inv.get('rental_yield_pct', 0)}%</div>
                 <div style="font-size:12px;color:#aaa">Rental Yield p.a.</div>
             </div>
             """, unsafe_allow_html=True)
             
         # Recent Sales Table
         st.markdown("##### 🏛️ Recent Micro-Market Sales Comparison")
-        base_rate = est['per_sqft_rate']
+        base_rate = est.get('per_sqft_rate', 5000)
         sales_records = [
             {"Sold Date": "March 2026", "BHK": f"{p.get('bhk', 3)} BHK", "Size (sqft)": p.get('size_sqft', 1200) - 80, "Rate/sqft": f"₹{round(base_rate * 0.97):,}", "Final Price": format_price((base_rate * 0.97) * (p.get('size_sqft', 1200) - 80))},
             {"Sold Date": "January 2026", "BHK": f"{p.get('bhk', 3)} BHK", "Size (sqft)": p.get('size_sqft', 1200) + 120, "Rate/sqft": f"₹{round(base_rate * 1.01):,}", "Final Price": format_price((base_rate * 1.01) * (p.get('size_sqft', 1200) + 120))},
@@ -1204,9 +1259,38 @@ def render_detail():
             aqi_status = "Good" if aqi_val < 50 else ("Moderate" if aqi_val < 100 else "Poor")
             
             # Weather Block
-            temp = 31 if p['city'].lower() in ['delhi', 'noida', 'gurgaon', 'mumbai'] else 25
+            temp = 31 if p.get('city', 'Delhi').lower() in ['delhi', 'noida', 'gurgaon', 'mumbai'] else 25
             cond = "Sunny & Warm" if temp > 30 else "Cloudy & Breeze"
             
+            gmaps_key = st.session_state.get("google_maps_key", "")
+            p_lat, p_lng = p.get("lat", 28.6139), p.get("lng", 77.2090)
+            
+            schools_html = ""
+            hospitals_html = ""
+            
+            if gmaps_key:
+                schools = get_nearby_places(p_lat, p_lng, "school", gmaps_key)
+                hospitals = get_nearby_places(p_lat, p_lng, "hospital", gmaps_key)
+                
+                if schools:
+                    schools_html = "".join([f"<p>{idx+1}. {s['name']} — {s['distance']} km ({s['rating']} ⭐)</p>" for idx, s in enumerate(schools)])
+                else:
+                    schools_html = "<p>No schools found nearby.</p>"
+                    
+                if hospitals:
+                    hospitals_html = "".join([f"<p>{idx+1}. {h['name']} — {h['distance']} km ({h['rating']} ⭐)</p>" for idx, h in enumerate(hospitals)])
+                else:
+                    hospitals_html = "<p>No hospitals found nearby.</p>"
+            else:
+                schools_html = """
+                <p>1. Delhi Public School (Rank #2 in City) — 1.5 km</p>
+                <p>2. Amity Global School (Rating 4.6/5) — 2.4 km</p>
+                """
+                hospitals_html = """
+                <p>1. Fortis Healthcare Hospital (Rating 4.8/5) — 2.2 km</p>
+                <p>2. Max Super Speciality Hospital (Rating 4.7/5) — 3.1 km</p>
+                """
+                
             st.markdown(f"""
             <div class="info-box">
                 <h5>🌬️ Environment: AQI & Weather</h5>
@@ -1214,10 +1298,11 @@ def render_detail():
                 <p>Local Weather: <b>{temp}°C — {cond}</b></p>
             </div>
             <div class="info-box">
-                <h5>🏫 School & Hospital Ratings (5 km radius)</h5>
-                <p>1. Delhi Public School (Rank #2 in City) — 1.5 km</p>
-                <p>2. Fortis Healthcare Hospital (Rating 4.8/5) — 2.2 km</p>
-                <p>3. Sector Police Station Station — 1.8 km</p>
+                <h5>🏫 School & Hospital Ratings (2 km radius)</h5>
+                <strong>Nearby Schools:</strong>
+                {schools_html}
+                <strong style="margin-top:10px;display:block">Nearby Hospitals:</strong>
+                {hospitals_html}
             </div>
             <div class="info-box">
                 <h5>♿ Sunlight Facing & Access</h5>
@@ -1227,8 +1312,9 @@ def render_detail():
             </div>
             """, unsafe_allow_html=True)
         with ec2:
-            if FOLIUM_OK and p.get("lat"):
-                m = create_single_property_map(p['lat'], p['lng'], p['title'])
+            p_lat, p_lng = p.get("lat"), p.get("lng")
+            if FOLIUM_OK and p_lat and p_lng:
+                m = create_single_property_map(p_lat, p_lng, p.get('title', 'Property Location'))
                 st_folium(m, width="100%", height=300)
             else:
                 st.warning("Maps coordinates not configured properly.")
@@ -1242,10 +1328,11 @@ def render_detail():
         is_new_proj = st.checkbox("Under Construction Property? (5% GST Applicable)", value=(p.get("possession") != "ready"))
         
         # Surcharges breakdown
-        sd_data = stamp_duty(c_state, p["price"], is_female)
+        price_val = p.get("price", 0)
+        sd_data = stamp_duty(c_state, price_val, is_female)
         
         # GST
-        gst_amt = p["price"] * 0.05 if is_new_proj else 0.0
+        gst_amt = price_val * 0.05 if is_new_proj else 0.0
         
         # Brokerage calculation
         poster_role = "owner"
@@ -1257,13 +1344,13 @@ def render_detail():
         except Exception:
             pass
         broker_rate = 0.01 if poster_role == "agent" else 0.0
-        brokerage_amt = p["price"] * broker_rate
+        brokerage_amt = price_val * broker_rate
         
-        total_on_road = p["price"] + sd_data["stamp_duty_amount"] + sd_data["registration_fee"] + brokerage_amt + gst_amt
+        total_on_road = price_val + sd_data["stamp_duty_amount"] + sd_data["registration_fee"] + brokerage_amt + gst_amt
         
         st.markdown(f"""
         <table style="width:100%;border-collapse:collapse;margin-bottom:1.5rem">
-            <tr style="border-bottom:1px solid #333"><td style="padding:10px">Base Cost</td><td style="text-align:right">{format_price(p['price'])}</td></tr>
+            <tr style="border-bottom:1px solid #333"><td style="padding:10px">Base Cost</td><td style="text-align:right">{format_price(price_val)}</td></tr>
             <tr style="border-bottom:1px solid #333"><td style="padding:10px">Stamp Duty (State rate)</td><td style="text-align:right">{format_price(sd_data['stamp_duty_amount'])}</td></tr>
             <tr style="border-bottom:1px solid #333"><td style="padding:10px">Registration Fees</td><td style="text-align:right">{format_price(sd_data['registration_fee'])}</td></tr>
             <tr style="border-bottom:1px solid #333"><td style="padding:10px">Brokerage Fee ({broker_rate*100:.1f}%)</td><td style="text-align:right">{format_price(brokerage_amt)}</td></tr>
@@ -1273,7 +1360,7 @@ def render_detail():
         """, unsafe_allow_html=True)
         
         st.markdown("#### 🏦 Home Loan Planner")
-        loan_amount = st.slider("Loan Principal (₹)", min_value=100000, max_value=int(p['price']), value=int(p['price']*0.8))
+        loan_amount = st.slider("Loan Principal (₹)", min_value=100000, max_value=max(100000, int(price_val)), value=max(100000, int(price_val*0.8)))
         loan_rate = st.slider("Interest Rate (% p.a.)", min_value=6.0, max_value=15.0, value=8.5, step=0.1)
         loan_tenure = st.slider("Tenure (Years)", min_value=5, max_value=30, value=20)
         
@@ -1610,78 +1697,123 @@ def render_post_property():
             st.warning("🔐 Please login from the sidebar first to post properties.")
         else:
             user = st.session_state["user"]
-            with st.form("post_prop_form"):
-                title = st.text_input("Title *", placeholder="e.g. Elegant 3BHK in Sector 137, Noida")
-                col_a, col_b = st.columns(2)
-                with col_a:
-                    p_type = st.selectbox("Type", ["apartment", "villa", "plot", "office", "shop"])
-                    city = st.text_input("City *", placeholder="e.g. Noida")
-                    state = st.text_input("State", placeholder="e.g. Uttar Pradesh")
-                    hide_phone = st.checkbox("Hide my phone number from public layout")
-                with col_b:
-                    listing = st.selectbox("Listed for", ["buy", "rent"])
-                    area = st.text_input("Area *", placeholder="e.g. Sector 137")
-                    price = st.number_input("Price (₹) *", min_value=1000)
-                    
-                sqft = st.number_input("Sqft Size *", min_value=100)
-                bhk = st.selectbox("BHK", [1, 2, 3, 4, 5])
-                desc = st.text_area("Description")
+            gmaps_api_key = st.session_state.get("google_maps_key", "")
+            
+            st.markdown("##### 📍 Pin Property Location")
+            search_addr = st.text_input("🔍 Search Address on Google Maps (Type and press Enter)", "")
+            
+            if search_addr and gmaps_api_key:
+                suggestions = get_places_autocomplete(search_addr, gmaps_api_key)
+                if suggestions:
+                    resolved_address = st.selectbox("Select Exact Address from Suggestions", ["-- Select Address --"] + suggestions)
+                    if resolved_address != "-- Select Address --":
+                        coords = geocode_google(resolved_address, gmaps_api_key)
+                        st.session_state["post_lat"] = coords["lat"]
+                        st.session_state["post_lng"] = coords["lng"]
+                        addr_info = reverse_geocode_google(coords["lat"], coords["lng"], gmaps_api_key)
+                        if addr_info:
+                            st.session_state["post_city"] = addr_info.get("city", "")
+                            st.session_state["post_area"] = addr_info.get("area", "")
+                            st.session_state["post_state"] = addr_info.get("state", "")
+                            st.session_state["post_pincode"] = addr_info.get("pincode", "")
+            
+            post_lat = st.session_state.get("post_lat", 28.6139)
+            post_lng = st.session_state.get("post_lng", 77.2090)
+            
+            if FOLIUM_OK:
+                st.markdown("<p style='font-size:12px;color:#aaa'>Or click anywhere on the map to drop a pin on your property location:</p>", unsafe_allow_html=True)
+                m_post = folium.Map(location=[post_lat, post_lng], zoom_start=14, tiles=None)
+                folium.TileLayer("https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}", attr="Google Maps", name="Google Maps").add_to(m_post)
+                folium.Marker([post_lat, post_lng], popup="Selected Location", icon=folium.Icon(color="red", icon="home")).add_to(m_post)
                 
-                st.markdown("##### 📄 Document Verification & Floor Plans")
-                rera_no_input = st.text_input("RERA Registration Number", placeholder="e.g. UPRERAPRJ12345")
-                uploaded_docs = st.file_uploader("Upload Legal Property Documents (Title Deed, Sale Deed)", accept_multiple_files=True)
-                uploaded_floor = st.file_uploader("Upload Floor Plan Layout Image", type=["png", "jpg", "jpeg"])
-                uploaded_photos = st.file_uploader("Upload Property Photos", type=["png", "jpg", "jpeg"], accept_multiple_files=True)
+                map_data = st_folium(m_post, width="100%", height=300, key="post_map_picker")
+                if map_data and map_data.get("last_clicked"):
+                    clicked_lat = map_data["last_clicked"]["lat"]
+                    clicked_lng = map_data["last_clicked"]["lng"]
+                    if abs(clicked_lat - post_lat) > 0.0001 or abs(clicked_lng - post_lng) > 0.0001:
+                        st.session_state["post_lat"] = clicked_lat
+                        st.session_state["post_lng"] = clicked_lng
+                        if gmaps_api_key:
+                            addr_info = reverse_geocode_google(clicked_lat, clicked_lng, gmaps_api_key)
+                            if addr_info:
+                                st.session_state["post_city"] = addr_info.get("city", "")
+                                st.session_state["post_area"] = addr_info.get("area", "")
+                                st.session_state["post_state"] = addr_info.get("state", "")
+                                st.session_state["post_pincode"] = addr_info.get("pincode", "")
+                        st.rerun()
+            
+            title = st.text_input("Title *", placeholder="e.g. Elegant 3BHK in Sector 137, Noida")
+            col_a, col_b = st.columns(2)
+            with col_a:
+                p_type = st.selectbox("Type", ["apartment", "villa", "plot", "office", "shop", "farmhouse"])
+                city = st.text_input("City *", value=st.session_state.get("post_city", ""))
+                state = st.text_input("State", value=st.session_state.get("post_state", ""))
+                hide_phone = st.checkbox("Hide my phone number from public layout")
+            with col_b:
+                listing = st.selectbox("Listed for", ["buy", "rent"])
+                area = st.text_input("Area *", value=st.session_state.get("post_area", ""))
+                price = st.number_input("Price (₹) *", min_value=1000)
                 
-                st.markdown("**Choose Listing Plan**")
-                plan = st.radio("Upload Plan", ["Free (Standard)", "Featured Plan (₹499/mo) - 💎 Premium badge"])
-                
-                if st.form_submit_button("🚀 Post Property Listing"):
-                    if not title or not city or not area or price <= 0:
-                        st.error("Please fill all mandatory fields.")
+            sqft = st.number_input("Sqft Size *", min_value=100)
+            bhk = st.selectbox("BHKConfig", [1, 2, 3, 4, 5])
+            desc = st.text_area("Description")
+            
+            st.markdown("##### 📄 Document Verification & Floor Plans")
+            rera_no_input = st.text_input("RERA Registration Number", placeholder="e.g. UPRERAPRJ12345")
+            uploaded_docs = st.file_uploader("Upload Legal Property Documents (Title Deed, Sale Deed)", accept_multiple_files=True)
+            uploaded_floor = st.file_uploader("Upload Floor Plan Layout Image", type=["png", "jpg", "jpeg"])
+            uploaded_photos = st.file_uploader("Upload Property Photos", type=["png", "jpg", "jpeg"], accept_multiple_files=True)
+            
+            st.markdown("**Choose Listing Plan**")
+            plan = st.radio("Upload Plan", ["Free (Standard)", "Featured Plan (₹499/mo) - 💎 Premium badge"])
+            
+            if st.button("🚀 Post Property Listing", type="primary"):
+                if not title or not city or not area or price <= 0:
+                    st.error("Please fill all mandatory fields.")
+                else:
+                    # Duplicate check
+                    is_dup, dup_id = detect_duplicates(title, area, sqft)
+                    if is_dup:
+                        st.warning(f"⚠️ AI detected this might be a duplicate listing of property ID {dup_id}!")
                     else:
-                        # Duplicate check
-                        is_dup, dup_id = detect_duplicates(title, area, sqft)
-                        if is_dup:
-                            st.warning(f"⚠️ AI detected this might be a duplicate listing of property ID {dup_id}!")
-                        else:
-                            # Handle photo uploads
-                            images_saved = []
-                            if uploaded_photos:
-                                for idx, f in enumerate(uploaded_photos):
-                                    fn = f"p_{int(datetime.now().timestamp())}_{idx}.jpg"
-                                    fpath = os.path.join(UPLOADS_DIR, fn)
-                                    try:
-                                        with open(fpath, "wb") as out_f:
-                                            out_f.write(f.getbuffer())
-                                        images_saved.append(f"assets/uploads/{fn}")
-                                    except Exception:
-                                        pass
-                            
-                            loc = geocode(f"{area}, {city}, {state}, India")
-                            new_p = {
-                                "id": f"prop_{int(datetime.now().timestamp())}",
-                                "title": title, "type": p_type, "listing_type": listing,
-                                "city": city, "area": area, "state": state,
-                                "pincode": "", "price": price, "price_per_sqft": round(price/sqft), "size_sqft": sqft,
-                                "bhk": bhk, "bedrooms": bhk, "bathrooms": bhk - 1 if bhk > 1 else 1, "parking": 1,
-                                "floor": 1, "total_floors": 4, "furnishing": "unfurnished", "status": "available",
-                                "verified": bool(uploaded_docs), "premium": "Featured" in plan, "lat": loc["lat"], "lng": loc["lng"],
-                                "description": desc, "amenities": ["parking", "security"], "images": images_saved,
-                                "owner_name": user["name"], "owner_phone": user["phone"], "owner_whatsapp": user["phone"],
-                                "owner_email": user["email"], "posted_by": user["id"],
-                                "posted_date": datetime.now().strftime("%Y-%m-%d"), "views": 0, "leads": 0,
-                                "possession": "ready", "age_years": 0, "facing": "East", "approved": False,
-                                "hide_contact": hide_phone, "aqi": 100, "ev_charging": False, "wheelchair_access": True,
-                                "price_history": [price],
-                                "rera_registered": bool(rera_no_input),
-                                "rera_no": rera_no_input,
-                                "legal_approved": bool(uploaded_docs),
-                                "has_floor_plan": bool(uploaded_floor)
-                            }
-                            save_property(new_p)
-                            st.success("Submitted! Property is pending approval from Admin.")
-                            st.balloons()
+                        images_saved = []
+                        if uploaded_photos:
+                            for idx, f in enumerate(uploaded_photos):
+                                fn = f"p_{int(datetime.now().timestamp())}_{idx}.jpg"
+                                fpath = os.path.join(UPLOADS_DIR, fn)
+                                try:
+                                    with open(fpath, "wb") as out_f:
+                                        out_f.write(f.getbuffer())
+                                    images_saved.append(f"assets/uploads/{fn}")
+                                except Exception:
+                                    pass
+                        
+                        lat_val = st.session_state.get("post_lat", 28.6139)
+                        lng_val = st.session_state.get("post_lng", 77.2090)
+                        
+                        new_p = {
+                            "id": f"prop_{int(datetime.now().timestamp())}",
+                            "title": title, "type": p_type, "listing_type": listing,
+                            "city": city, "area": area, "state": state,
+                            "pincode": st.session_state.get("post_pincode", ""), "price": price, "price_per_sqft": round(price/sqft), "size_sqft": sqft,
+                            "bhk": bhk, "bedrooms": bhk, "bathrooms": bhk - 1 if bhk > 1 else 1, "parking": 1,
+                            "floor": 1, "total_floors": 4, "furnishing": "unfurnished", "status": "available",
+                            "verified": bool(uploaded_docs), "premium": "Featured" in plan, "lat": lat_val, "lng": lng_val,
+                            "description": desc, "amenities": ["parking", "security"], "images": images_saved,
+                            "owner_name": user["name"], "owner_phone": user["phone"], "owner_whatsapp": user["phone"],
+                            "owner_email": user["email"], "posted_by": user["id"],
+                            "posted_date": datetime.now().strftime("%Y-%m-%d"), "views": 0, "leads": 0,
+                            "possession": "ready", "age_years": 0, "facing": "East", "approved": False,
+                            "hide_contact": hide_phone, "aqi": 100, "ev_charging": False, "wheelchair_access": True,
+                            "price_history": [price],
+                            "rera_registered": bool(rera_no_input),
+                            "rera_no": rera_no_input,
+                            "legal_approved": bool(uploaded_docs),
+                            "has_floor_plan": bool(uploaded_floor)
+                        }
+                        save_property(new_p)
+                        st.success("Submitted! Property is pending approval from Admin.")
+                        st.balloons()
                             
     # Sub-tab 2: Post Buyer Requirement
     with req_tab:
@@ -1884,7 +2016,7 @@ def render_dashboard():
                                         u["kyc_verified"] = True
                                         u["aadhaar"] = st.session_state["kyc_aadhaar"]
                                         u["pan"] = st.session_state["kyc_pan"]
-                                _save_data(USERS_FILE, users)
+                                user_data = _load_data(USERS_FILE)
                                 st.session_state["user"]["kyc_verified"] = True
                                 st.session_state["kyc_otp_sent"] = False
                                 st.success("🎉 Congratulations! Your KYC has been verified. Verified badge is now active.")
@@ -2042,22 +2174,22 @@ def render_dashboard():
                     st.info("No follow-up reminders scheduled.")
                 else:
                     for rm in agent_rems:
-                         status_str = "✅ Completed" if rm.get("done") else "⏳ Pending"
-                         st.markdown(f"""
-                         <div class="info-box" style="border-left:4px solid {'#00c864' if rm.get('done') else '#d4af37'}">
-                             <p>📝 {rm['text']}</p>
-                             <p style="font-size:12px;color:#aaa">Due Date: {rm['date']} | Status: {status_str}</p>
-                         </div>
-                         """, unsafe_allow_html=True)
-                         if not rm.get("done"):
-                             if st.button("Mark Complete", key=f"don_rem_{rm['id']}"):
-                                 for r in reminders:
-                                     if r["id"] == rm["id"]:
-                                         r["done"] = True
-                                 _save_data(REMINDERS_FILE, reminders)
-                                 st.success("Reminder completed!")
-                                 st.rerun()
-                                 
+                        status_str = "✅ Completed" if rm.get("done") else "⏳ Pending"
+                        st.markdown(f"""
+                        <div class="info-box" style="border-left:4px solid {'#00c864' if rm.get('done') else '#d4af37'}">
+                            <p>📝 {rm['text']}</p>
+                            <p style="font-size:12px;color:#aaa">Due Date: {rm['date']} | Status: {status_str}</p>
+                        </div>
+                        """, unsafe_allow_html=True)
+                        if not rm.get("done"):
+                            if st.button("Mark Complete", key=f"don_rem_{rm['id']}"):
+                                for r in reminders:
+                                    if r["id"] == rm["id"]:
+                                        r["done"] = True
+                                _save_data(REMINDERS_FILE, reminders)
+                                st.success("Reminder completed!")
+                                st.rerun()
+                                
                 st.markdown("---")
                 st.markdown("##### ⏰ Add Reminder")
                 with st.form("crm_add_reminder"):
@@ -2093,8 +2225,15 @@ def render_dashboard():
                 if not closed_leads:
                     st.info("No closed deals recorded yet.")
                 else:
-                    df_closed = pd.DataFrame(closed_leads)[["name", "phone", "property", "commission"]]
-                    st.dataframe(df_closed, use_container_width=True)
+                    closed_data = []
+                    for ld in closed_leads:
+                        closed_data.append({
+                            "Name": ld.get("name", ""),
+                            "Phone": ld.get("phone", ""),
+                            "Property": ld.get("property", ""),
+                            "Commission": format_price(ld.get("commission", 0))
+                        })
+                    st.dataframe(pd.DataFrame(closed_data), use_container_width=True)
 
     # Tab 5: Chats
     with t_chats:
@@ -2328,9 +2467,9 @@ def render_admin():
             for p in pending_p:
                 st.markdown(f"""
                 <div class="info-box">
-                    <h5>🏠 {p['title']}</h5>
-                    <p>Price: {format_price(p['price'])} | Locality: {p['area']}, {p['city']}</p>
-                    <p>Listed by: {p['owner_name']} ({p['owner_phone']})</p>
+                    <h5>🏠 {p.get('title', 'Property Title')}</h5>
+                    <p>Price: {format_price(p.get('price', 0))} | Locality: {p.get('area', '')}, {p.get('city', '')}</p>
+                    <p>Listed by: {p.get('owner_name', '')} ({p.get('owner_phone', '')})</p>
                 </div>
                 """, unsafe_allow_html=True)
                 col_ok, col_no = st.columns(2)
@@ -2348,10 +2487,21 @@ def render_admin():
     with adm_t2:
         st.markdown("#### Platform Users Registry")
         usrs = _load_data(USERS_FILE)
-        df_users = pd.DataFrame(usrs)[["id", "name", "email", "phone", "role", "kyc_verified"]]
+        user_list = []
+        for u in usrs:
+            user_list.append({
+                "User ID": u.get("id", ""),
+                "Name": u.get("name", ""),
+                "Email": u.get("email", ""),
+                "Phone": u.get("phone", ""),
+                "Role": u.get("role", "owner").title(),
+                "KYC Verified": "✅ Yes" if u.get("kyc_verified") else "⏳ No"
+            })
+        df_users = pd.DataFrame(user_list)
         st.dataframe(df_users, use_container_width=True)
         
-        u_sel = st.selectbox("Select User to Verify KYC", [u["id"] for u in usrs if not u.get("kyc_verified")])
+        pending_kyc_ids = [u.get("id") for u in usrs if not u.get("kyc_verified") and u.get("id")]
+        u_sel = st.selectbox("Select User to Verify KYC", pending_kyc_ids)
         if u_sel:
             if st.button("Approve KYC Status"):
                 for u in usrs:
