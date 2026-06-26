@@ -234,11 +234,11 @@ GLOBAL_CSS = """
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Playfair+Display:wght@700&display=swap');
 
 *, *::before, *::after { box-sizing: border-box; }
-html, body, [data-testid="stApp"] {
-    background: linear-gradient(135deg, #0a0a16 0%, #0d1428 50%, #0a0a16 100%);
-    color: #e8e8f0; font-family: 'Inter', sans-serif; min-height: 100vh;
+html, body, [data-testid="stAppViewContainer"], [data-testid="stApp"] {
+    background: linear-gradient(135deg, #0a0a16 0%, #0d1428 50%, #0a0a16 100%) !important;
+    color: #e8e8f0 !important; font-family: 'Inter', sans-serif; min-height: 100vh;
 }
-#MainMenu, footer, header[data-testid="stHeader"] { visibility: hidden; }
+#MainMenu, footer { visibility: hidden; }
 [data-testid="stSidebar"] { background: #0d1128 !important; border-right: 1px solid rgba(212,175,55,0.2); }
 h1 { font-family: 'Playfair Display', serif !important; color: #fff !important; }
 h2, h3 { color: #d4af37 !important; font-weight: 700; }
@@ -359,6 +359,7 @@ def get_deal_verdict(listed_price, est_price):
 def detect_duplicates(title, area, size_sqft):
     props = get_all_properties(approved_only=False)
     for p in props:
+        # Check matching area and overlapping size (within 5% range)
         size_diff = abs(p["size_sqft"] - size_sqft) / size_sqft
         if p["area"].lower() == area.lower() and size_diff < 0.05:
             return True, p["id"]
@@ -399,6 +400,7 @@ def property_card_html(p: dict) -> str:
     bhk = f"{p.get('bhk','')}BHK · " if p.get("bhk") else ""
     sqft = f"{p.get('size_sqft','')} sqft" if p.get("size_sqft") else ""
     
+    # Calculate price tag dynamically
     est = estimate_price(p['city'], p['area'], p['size_sqft'], p.get('bhk', 2), p.get('type','apartment'))
     deal_lbl, deal_cls = get_deal_verdict(p['price'], est['estimated_price'])
     
@@ -942,26 +944,29 @@ def render_home():
     # Upcoming Projects
     st.markdown("<br>### 🏗️ Newly Launched Colonies & Projects", unsafe_allow_html=True)
     projs = get_all_projects()
-    cols_proj = st.columns(len(projs[:2]))
-    for idx, pr in enumerate(projs[:2]):
-        with cols_proj[idx]:
-            st.markdown(f"""
-            <div class="prop-card">
-                <div style="font-size:11px;color:#d4af37;font-weight:700;text-transform:uppercase">● Under Construction</div>
-                <h4 style="color:#fff;margin:6px 0">{pr['name']}</h4>
-                <div style="font-size:12px;color:#aaa">By {pr['builder']} · {pr['area']}, {pr['city']}</div>
-                <div style="font-size:14px;color:#d4af37;font-weight:700;margin-top:8px">{pr['price_range']}</div>
-                <div style="margin-top:10px">
-                    <div style="font-size:11px;color:#888">Construction Progress ({pr['progress_percent']}%)</div>
-                    <div style="background:rgba(255,255,255,0.1);border-radius:10px;height:6px;overflow:hidden">
-                        <div style="width:{pr['progress_percent']}%;height:100%;background:#d4af37"></div>
+    if projs:
+        cols_proj = st.columns(len(projs[:2]))
+        for idx, pr in enumerate(projs[:2]):
+            with cols_proj[idx]:
+                st.markdown(f"""
+                <div class="prop-card">
+                    <div style="font-size:11px;color:#d4af37;font-weight:700;text-transform:uppercase">● Under Construction</div>
+                    <h4 style="color:#fff;margin:6px 0">{pr['name']}</h4>
+                    <div style="font-size:12px;color:#aaa">By {pr['builder']} · {pr['area']}, {pr['city']}</div>
+                    <div style="font-size:14px;color:#d4af37;font-weight:700;margin-top:8px">{pr['price_range']}</div>
+                    <div style="margin-top:10px">
+                        <div style="font-size:11px;color:#888">Construction Progress ({pr['progress_percent']}%)</div>
+                        <div style="background:rgba(255,255,255,0.1);border-radius:10px;height:6px;overflow:hidden">
+                            <div style="width:{pr['progress_percent']}%;height:100%;background:#d4af37"></div>
+                        </div>
                     </div>
                 </div>
-            </div>
-            """, unsafe_allow_html=True)
-            if st.button("View Builder Details", key=f"home_p_{pr['id']}", use_container_width=True):
-                st.session_state["page"] = "Builders & Projects"
-                st.rerun()
+                """, unsafe_allow_html=True)
+                if st.button("View Builder Details", key=f"home_p_{pr['id']}", use_container_width=True):
+                    st.session_state["page"] = "Builders & Projects"
+                    st.rerun()
+    else:
+        st.info("No newly launched projects yet.")
 
 # ─────────────────────────────────────────────────────────────
 # PAGE: SEARCH PROPERTIES
@@ -1029,9 +1034,8 @@ def render_search():
                                         if r["id"] not in u_data.get("wishlist", []):
                                             u_data.setdefault("wishlist", []).append(r["id"])
                                             st.success("Added to Wishlist!")
-                                u_data = next(usr for usr in users if usr["id"] == u["id"])
-                                _save_data(USERS_FILE, users)
-                                st.session_state["user"] = u_data
+                                users = _load_data(USERS_FILE)
+                                st.session_state["user"] = next(usr for usr in users if usr["id"] == u["id"])
                             else:
                                 st.error("Please login to save wishlist.")
         with view_tabs[1]:
@@ -1115,6 +1119,7 @@ def render_detail():
             </div>
             """, unsafe_allow_html=True)
             
+        # Recent Sales Table
         st.markdown("##### 🏛️ Recent Micro-Market Sales Comparison")
         base_rate = est['per_sqft_rate']
         sales_records = [
@@ -1141,6 +1146,7 @@ def render_detail():
             aqi_val = p.get("aqi", 120)
             aqi_status = "Good" if aqi_val < 50 else ("Moderate" if aqi_val < 100 else "Poor")
             
+            # Weather Block
             temp = 31 if p['city'].lower() in ['delhi', 'noida', 'gurgaon', 'mumbai'] else 25
             cond = "Sunny & Warm" if temp > 30 else "Cloudy & Breeze"
             
@@ -1178,9 +1184,13 @@ def render_detail():
         is_female = st.checkbox("Buying under Female Owner name? (1% Stamp Duty Rebate)")
         is_new_proj = st.checkbox("Under Construction Property? (5% GST Applicable)", value=(p.get("possession") != "ready"))
         
+        # Surcharges breakdown
         sd_data = stamp_duty(c_state, p["price"], is_female)
+        
+        # GST
         gst_amt = p["price"] * 0.05 if is_new_proj else 0.0
         
+        # Brokerage calculation
         poster_role = "owner"
         try:
             users = _load_data(USERS_FILE)
@@ -1238,6 +1248,7 @@ def render_detail():
         st.checkbox("Encumbrance Certificate (EC) checked", value=has_legal, disabled=True)
         st.checkbox("Property Floor Plan Layout Approved", value=p.get('has_floor_plan', False), disabled=True)
         
+        # Mock document downloads
         st.markdown("##### View Uploaded Documents")
         if has_legal:
             col_doc1, col_doc2 = st.columns(2)
@@ -1253,6 +1264,7 @@ def render_detail():
         selected_lawyer = st.selectbox("Select Lawyer", lawyers)
         if st.button("Request Booking", key="lawyer_book_btn"):
             if is_logged_in():
+                # save lawyer booking enquiry
                 save_enquiry(p["id"], st.session_state["user"]["id"], "lawyer_booking", f"Consultation requested with {selected_lawyer}")
                 st.success(f"Lawyer consultation request sent to {selected_lawyer}! They will contact you shortly.")
             else:
@@ -1314,6 +1326,7 @@ def render_detail():
     with dt6:
         st.markdown("#### 👤 Contact Listing Agent / Owner")
         
+        # Check if phone number is hidden
         if p.get("hide_contact"):
             st.warning("🔒 Owner has hidden their direct phone number to prevent spam.")
             if is_logged_in():
@@ -1358,6 +1371,7 @@ def render_detail():
             </div>
             """, unsafe_allow_html=True)
             
+        # In-App Chat Simulation
         st.markdown("##### 💬 Send Direct Chat Message")
         if is_logged_in():
             chat_msg = st.text_input("Type your message to the owner", placeholder="Is the price negotiable?")
@@ -1493,6 +1507,7 @@ def render_locality():
         </div>
         """, unsafe_allow_html=True)
         
+        # Price Trend Graph
         if PLOTLY_OK:
             st.markdown("#### 📈 5-Year Area Price Trend (per sqft)")
             fig = go.Figure()
@@ -1502,7 +1517,10 @@ def render_locality():
                 mode="lines+markers", 
                 line=dict(color="#d4af37", width=3)
             ))
-            fig.update_layout(paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", font_color="#fff")# ─────────────────────────────────────────────────────────────
+            fig.update_layout(paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", font_color="#fff")
+            st.plotly_chart(fig, use_container_width=True)
+
+# ─────────────────────────────────────────────────────────────
 # PAGE: POST PROPERTY OR REQUIREMENT
 # ─────────────────────────────────────────────────────────────
 def render_post_property():
@@ -1546,10 +1564,12 @@ def render_post_property():
                     if not title or not city or not area or price <= 0:
                         st.error("Please fill all mandatory fields.")
                     else:
+                        # Duplicate check
                         is_dup, dup_id = detect_duplicates(title, area, sqft)
                         if is_dup:
                             st.warning(f"⚠️ AI detected this might be a duplicate listing of property ID {dup_id}!")
                         else:
+                            # Handle photo uploads
                             images_saved = []
                             if uploaded_photos:
                                 for idx, f in enumerate(uploaded_photos):
@@ -1756,6 +1776,7 @@ def render_dashboard():
             else:
                 st.markdown("<p style='color:#aaa'>Verify your profile with Aadhaar & PAN card to get the 👑 Verified Owner or 🎖️ Trusted Agent badge and increase leads.</p>", unsafe_allow_html=True)
                 
+                # Setup session state helper
                 if "kyc_otp_sent" not in st.session_state:
                     st.session_state["kyc_otp_sent"] = False
                 
@@ -1857,7 +1878,7 @@ def render_dashboard():
         if user.get("role") != "agent":
             st.info("Agent CRM tools are only available to Agent profiles.")
         else:
-            st.markdown("#### 🧑‍💼 Agent CRM Workspace")
+            st.markdown("#### 🧑💼 Agent CRM Workspace")
             
             leads = _load_data(LEADS_FILE)
             reminders = _load_data(REMINDERS_FILE)
@@ -1945,22 +1966,22 @@ def render_dashboard():
                     st.info("No follow-up reminders scheduled.")
                 else:
                     for rm in agent_rems:
-                        status_str = "✅ Completed" if rm.get("done") else "⏳ Pending"
-                        st.markdown(f"""
-                        <div class="info-box" style="border-left:4px solid {'#00c864' if rm.get('done') else '#d4af37'}">
-                            <p>📝 {rm['text']}</p>
-                            <p style="font-size:12px;color:#aaa">Due Date: {rm['date']} | Status: {status_str}</p>
-                        </div>
-                        """, unsafe_allow_html=True)
-                        if not rm.get("done"):
-                            if st.button("Mark Complete", key=f"don_rem_{rm['id']}"):
-                                for r in reminders:
-                                    if r["id"] == rm["id"]:
-                                        r["done"] = True
-                                _save_data(REMINDERS_FILE, reminders)
-                                st.success("Reminder completed!")
-                                st.rerun()
-                                
+                         status_str = "✅ Completed" if rm.get("done") else "⏳ Pending"
+                         st.markdown(f"""
+                         <div class="info-box" style="border-left:4px solid {'#00c864' if rm.get('done') else '#d4af37'}">
+                             <p>📝 {rm['text']}</p>
+                             <p style="font-size:12px;color:#aaa">Due Date: {rm['date']} | Status: {status_str}</p>
+                         </div>
+                         """, unsafe_allow_html=True)
+                         if not rm.get("done"):
+                             if st.button("Mark Complete", key=f"don_rem_{rm['id']}"):
+                                 for r in reminders:
+                                     if r["id"] == rm["id"]:
+                                         r["done"] = True
+                                 _save_data(REMINDERS_FILE, reminders)
+                                 st.success("Reminder completed!")
+                                 st.rerun()
+                                 
                 st.markdown("---")
                 st.markdown("##### ⏰ Add Reminder")
                 with st.form("crm_add_reminder"):
@@ -2111,6 +2132,7 @@ def render_projects():
                     </div>
                     """, unsafe_allow_html=True)
                     
+                    # Construction Progress Bar
                     st.write(f"Construction Progress: **{pr['progress_percent']}%**")
                     st.progress(pr['progress_percent'] / 100)
                     
@@ -2288,4 +2310,3 @@ elif st.session_state["page"] == "My Wishlist":
     render_wishlist()
 elif st.session_state["page"] == "Admin Panel":
     render_admin()
-            st.plotly_chart(fig, use_container_width=True)
